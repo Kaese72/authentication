@@ -1,0 +1,49 @@
+package mariadb
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+
+	"github.com/Kaese72/authentication/internal/config"
+	"github.com/Kaese72/authentication/internal/logging"
+	"github.com/Kaese72/authentication/internal/persistence"
+	"go.elastic.co/apm/module/apmsql"
+)
+
+type mariadbPersistence struct {
+	db *sql.DB
+}
+
+func NewMariadbPersistence(conf config.DatabaseConfig) (mariadbPersistence, error) {
+	db, err := apmsql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true&loc=UTC", conf.User, conf.Password, conf.Host, conf.Port, conf.Database))
+	if err != nil {
+		logging.Fatal(err.Error(), context.Background())
+		return mariadbPersistence{}, err
+	}
+	return mariadbPersistence{db: db}, nil
+}
+
+func (m mariadbPersistence) GetUserByUsername(ctx context.Context, username string) (persistence.User, error) {
+	row := m.db.QueryRowContext(ctx, "SELECT id, username, passwordHash FROM users WHERE username = ?", username)
+	var user persistence.User
+	err := row.Scan(&user.ID, &user.Username, &user.PasswordHash)
+	if err != nil {
+		return persistence.User{}, err
+	}
+	return user, nil
+}
+
+func (m mariadbPersistence) UserExists(ctx context.Context) (bool, error) {
+	var count int
+	err := m.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users").Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func (m mariadbPersistence) CreateUser(ctx context.Context, username string, passwordHash string) error {
+	_, err := m.db.ExecContext(ctx, "INSERT INTO users (username, passwordHash) VALUES (?, ?)", username, passwordHash)
+	return err
+}
