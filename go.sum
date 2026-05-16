@@ -40,6 +40,8 @@ github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03
 github.com/BurntSushi/xgb v0.0.0-20160522181843-27f122750802/go.mod h1:IVnqGOEym/WlBOVXweHU+Q+/VP0lqqI8lqeDx9IjBqo=
 github.com/Kaese72/huemie-lib v0.0.5 h1:gNfG+NhH7O/C0AzzZmlnG5ZOzp+suD2mWvvWNUCtwSc=
 github.com/Kaese72/huemie-lib v0.0.5/go.mod h1:3hEu8ov7sCxyxtjZFZ4W+3pZkenEewfqSr7i5C17C2Y=
+github.com/Kaese72/huemie-lib v0.0.6 h1:9Rclgu5008r13ymW9ffo7C+GGhWZoxvXDsWQ1NmMghw=
+github.com/Kaese72/huemie-lib v0.0.6/go.mod h1:iq14glyPZmZuCb9dEgZ1aOHnjf4nTHtuHXABhVB6WnI=
 github.com/armon/go-radix v1.0.0 h1:F4z6KzEeeQIMeLFa97iZU6vupzoecKdU5TX24SNppXI=
 github.com/armon/go-radix v1.0.0/go.mod h1:ufUuZ+zHj4x4TnLV4JWEpy2hxWSpsRywHrMgIH9cCH8=
 github.com/census-instrumentation/opencensus-proto v0.2.1/go.mod h1:f6KPmirojxKA12rnyqOA5BBL4O983OfeGPqjHWSTneU=

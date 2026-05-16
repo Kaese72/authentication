@@ -2,13 +2,10 @@ package userwebapp
 
 import (
 	"context"
-	"crypto/rsa"
 	"database/sql"
-	"strings"
 
 	"github.com/Kaese72/authentication/internal/logging"
 	"github.com/Kaese72/authentication/internal/persistence"
-	"github.com/Kaese72/authentication/internal/restwebapp"
 	"github.com/Kaese72/authentication/restmodels"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/go-sql-driver/mysql"
@@ -17,32 +14,15 @@ import (
 
 type webApp struct {
 	persistence persistence.UserManagementPersistenceDB
-	publicKey   *rsa.PublicKey
 }
 
-func NewWebApp(p persistence.UserManagementPersistenceDB, publicKey *rsa.PublicKey) webApp {
-	return webApp{persistence: p, publicKey: publicKey}
+func NewWebApp(p persistence.UserManagementPersistenceDB) webApp {
+	return webApp{persistence: p}
 }
 
-func (app webApp) authenticate(authHeader string) error {
-	parts := strings.SplitN(authHeader, " ", 2)
-	if len(parts) != 2 || !strings.EqualFold(parts[0], "bearer") {
-		return huma.Error401Unauthorized("missing or invalid authorization header")
-	}
-	if _, err := restwebapp.ValidateUseToken(app.publicKey, parts[1]); err != nil {
-		return huma.Error401Unauthorized("invalid token")
-	}
-	return nil
-}
-
-func (app webApp) ListUsers(ctx context.Context, input *struct {
-	Authorization string `header:"Authorization"`
-}) (*struct {
+func (app webApp) ListUsers(ctx context.Context, input *struct{}) (*struct {
 	Body []restmodels.UserResponse
 }, error) {
-	if err := app.authenticate(input.Authorization); err != nil {
-		return nil, err
-	}
 	users, err := app.persistence.ListUsers(ctx)
 	if err != nil {
 		logging.ErrorErr(err, ctx)
@@ -56,14 +36,10 @@ func (app webApp) ListUsers(ctx context.Context, input *struct {
 }
 
 func (app webApp) GetUser(ctx context.Context, input *struct {
-	Authorization string `header:"Authorization"`
-	Username      string `path:"username"`
+	Username string `path:"username"`
 }) (*struct {
 	Body restmodels.UserResponse
 }, error) {
-	if err := app.authenticate(input.Authorization); err != nil {
-		return nil, err
-	}
 	user, err := app.persistence.GetUserByUsername(ctx, input.Username)
 	if err == sql.ErrNoRows {
 		return nil, huma.Error404NotFound("user not found")
@@ -76,14 +52,10 @@ func (app webApp) GetUser(ctx context.Context, input *struct {
 }
 
 func (app webApp) CreateUser(ctx context.Context, input *struct {
-	Authorization string `header:"Authorization"`
-	Body          restmodels.CreateUserRequest
+	Body restmodels.CreateUserRequest
 }) (*struct {
 	Body restmodels.UserResponse
 }, error) {
-	if err := app.authenticate(input.Authorization); err != nil {
-		return nil, err
-	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(input.Body.Password), bcrypt.DefaultCost)
 	if err != nil {
 		logging.ErrorErr(err, ctx)
@@ -105,12 +77,8 @@ func (app webApp) CreateUser(ctx context.Context, input *struct {
 }
 
 func (app webApp) DeleteUser(ctx context.Context, input *struct {
-	Authorization string `header:"Authorization"`
-	Username      string `path:"username"`
+	Username string `path:"username"`
 }) (*struct{}, error) {
-	if err := app.authenticate(input.Authorization); err != nil {
-		return nil, err
-	}
 	err := app.persistence.DeleteUser(ctx, input.Username)
 	if err == sql.ErrNoRows {
 		return nil, huma.Error404NotFound("user not found")

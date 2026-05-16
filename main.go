@@ -12,6 +12,7 @@ import (
 	"github.com/Kaese72/authentication/internal/restwebapp"
 	"github.com/Kaese72/authentication/internal/setupwebapp"
 	"github.com/Kaese72/authentication/internal/userwebapp"
+	"github.com/Kaese72/huemie-lib/middleware"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humamux"
 	"github.com/gorilla/mux"
@@ -47,9 +48,16 @@ func main() {
 
 	webapp := restwebapp.NewWebApp(dbPersistence, privateKey, config.Loaded.Auth.RefreshSecret, useTokenExpiry, refreshTokenExpiry)
 	setupWebapp := setupwebapp.NewWebApp(dbPersistence)
-	userWebapp := userwebapp.NewWebApp(dbPersistence, &privateKey.PublicKey)
+	userWebapp := userwebapp.NewWebApp(dbPersistence)
 
 	router := mux.NewRouter()
+	router.Use(middleware.UseTokenMiddleware(
+		&privateKey.PublicKey,
+		"/authentication-service/v0/authentication/login",
+		"/authentication-service/v0/setup/",
+		"/authentication-service/docs",
+		"/authentication-service/openapi",
+	))
 	humaConfig := huma.DefaultConfig("authentication", "1.0.0")
 	humaConfig.OpenAPIPath = "/authentication-service/openapi"
 	humaConfig.DocsPath = "/authentication-service/docs"
