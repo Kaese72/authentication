@@ -11,6 +11,7 @@ import (
 	"github.com/Kaese72/authentication/internal/persistence/mariadb"
 	"github.com/Kaese72/authentication/internal/restwebapp"
 	"github.com/Kaese72/authentication/internal/setupwebapp"
+	"github.com/Kaese72/authentication/internal/userwebapp"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humamux"
 	"github.com/gorilla/mux"
@@ -46,6 +47,7 @@ func main() {
 
 	webapp := restwebapp.NewWebApp(dbPersistence, privateKey, config.Loaded.Auth.RefreshSecret, useTokenExpiry, refreshTokenExpiry)
 	setupWebapp := setupwebapp.NewWebApp(dbPersistence)
+	userWebapp := userwebapp.NewWebApp(dbPersistence, &privateKey.PublicKey)
 
 	router := mux.NewRouter()
 	humaConfig := huma.DefaultConfig("authentication", "1.0.0")
@@ -57,6 +59,11 @@ func main() {
 
 	huma.Get(api, "/authentication-service/v0/setup/status", setupWebapp.SetupStatus)
 	huma.Post(api, "/authentication-service/v0/setup/user", setupWebapp.SetupUser)
+
+	huma.Get(api, "/authentication-service/v0/users", userWebapp.ListUsers)
+	huma.Post(api, "/authentication-service/v0/users", userWebapp.CreateUser)
+	huma.Get(api, "/authentication-service/v0/users/{username}", userWebapp.GetUser)
+	huma.Delete(api, "/authentication-service/v0/users/{username}", userWebapp.DeleteUser)
 
 	if err := http.ListenAndServe(":8080", router); err != nil {
 		logging.Error(err.Error(), context.TODO())

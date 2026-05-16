@@ -11,6 +11,8 @@ import (
 	"go.elastic.co/apm/module/apmsql"
 )
 
+var _ persistence.UserManagementPersistenceDB = mariadbPersistence{}
+
 type mariadbPersistence struct {
 	db *sql.DB
 }
@@ -46,4 +48,36 @@ func (m mariadbPersistence) UserExists(ctx context.Context) (bool, error) {
 func (m mariadbPersistence) CreateUser(ctx context.Context, username string, passwordHash string) error {
 	_, err := m.db.ExecContext(ctx, "INSERT INTO users (username, passwordHash) VALUES (?, ?)", username, passwordHash)
 	return err
+}
+
+func (m mariadbPersistence) ListUsers(ctx context.Context) ([]persistence.User, error) {
+	rows, err := m.db.QueryContext(ctx, "SELECT id, username FROM users ORDER BY username")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var users []persistence.User
+	for rows.Next() {
+		var user persistence.User
+		if err := rows.Scan(&user.ID, &user.Username); err != nil {
+			return nil, err
+		}
+		users = append(users, user)
+	}
+	return users, rows.Err()
+}
+
+func (m mariadbPersistence) DeleteUser(ctx context.Context, username string) error {
+	result, err := m.db.ExecContext(ctx, "DELETE FROM users WHERE username = ?", username)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }

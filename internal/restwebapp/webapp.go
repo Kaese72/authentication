@@ -83,14 +83,21 @@ func (app webApp) Login(ctx context.Context, input *struct {
 	}
 
 	// Fall back to username/password
-	if input.Body == nil || input.Body.Username == "" || input.Body.Password == "" {
+	var username, password string
+	if input.Body != nil && input.Body.Username != nil {
+		username = *input.Body.Username
+	}
+	if input.Body != nil && input.Body.Password != nil {
+		password = *input.Body.Password
+	}
+	if username == "" || password == "" {
 		return nil, huma.Error401Unauthorized("authentication required")
 	}
-	user, err := app.persistence.GetUserByUsername(ctx, input.Body.Username)
+	user, err := app.persistence.GetUserByUsername(ctx, username)
 	if err != nil {
 		return nil, huma.Error401Unauthorized("invalid credentials")
 	}
-	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(input.Body.Password)); err != nil {
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
 		return nil, huma.Error401Unauthorized("invalid credentials")
 	}
 
