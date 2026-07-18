@@ -72,7 +72,7 @@ func main() {
 	huma.Post(api, "/authentication-service/v0/users", userWebapp.CreateUser)
 	huma.Get(api, "/authentication-service/v0/users/{id}", userWebapp.GetUser)
 	huma.Delete(api, "/authentication-service/v0/users/{id}", userWebapp.DeleteUser)
-	huma.Put(api, "/authentication-service/v0/users/update-my-password", userWebapp.UpdateMyPassword)
+	huma.Put(api, "/authentication-service/v0/users/me/update-password", userWebapp.UpdateMyPassword)
 
 	if err := http.ListenAndServe(":8080", router); err != nil {
 		logging.Error(err.Error(), context.TODO())
