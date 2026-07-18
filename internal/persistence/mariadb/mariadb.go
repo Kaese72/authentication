@@ -36,6 +36,16 @@ func (m mariadbPersistence) GetUserByUsername(ctx context.Context, username stri
 	return user, nil
 }
 
+func (m mariadbPersistence) GetUserByID(ctx context.Context, id int64) (persistence.User, error) {
+	row := m.db.QueryRowContext(ctx, "SELECT id, username, passwordHash FROM users WHERE id = ?", id)
+	var user persistence.User
+	err := row.Scan(&user.ID, &user.Username, &user.PasswordHash)
+	if err != nil {
+		return persistence.User{}, err
+	}
+	return user, nil
+}
+
 func (m mariadbPersistence) UserExists(ctx context.Context) (bool, error) {
 	var count int
 	err := m.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users").Scan(&count)
@@ -67,8 +77,23 @@ func (m mariadbPersistence) ListUsers(ctx context.Context) ([]persistence.User, 
 	return users, rows.Err()
 }
 
-func (m mariadbPersistence) DeleteUser(ctx context.Context, username string) error {
-	result, err := m.db.ExecContext(ctx, "DELETE FROM users WHERE username = ?", username)
+func (m mariadbPersistence) DeleteUser(ctx context.Context, id int64) error {
+	result, err := m.db.ExecContext(ctx, "DELETE FROM users WHERE id = ?", id)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (m mariadbPersistence) UpdatePassword(ctx context.Context, username string, passwordHash string) error {
+	result, err := m.db.ExecContext(ctx, "UPDATE users SET passwordHash = ? WHERE username = ?", passwordHash, username)
 	if err != nil {
 		return err
 	}

@@ -34,9 +34,9 @@ func ParseRSAPrivateKey(pemBytes []byte) (*rsa.PrivateKey, error) {
 	}
 }
 
-func generateUseToken(privateKey *rsa.PrivateKey, username string, expiry time.Duration) (string, error) {
+func generateUseToken(privateKey *rsa.PrivateKey, id int64, expiry time.Duration) (string, error) {
 	claims := jwt.MapClaims{
-		"sub": username,
+		"id":  id,
 		"exp": time.Now().Add(expiry).Unix(),
 		"iat": time.Now().Unix(),
 	}
@@ -44,9 +44,9 @@ func generateUseToken(privateKey *rsa.PrivateKey, username string, expiry time.D
 	return token.SignedString(privateKey)
 }
 
-func generateRefreshToken(secret string, username string, expiry time.Duration) (string, error) {
+func generateRefreshToken(secret string, id int64, expiry time.Duration) (string, error) {
 	claims := jwt.MapClaims{
-		"sub": username,
+		"id":  id,
 		"exp": time.Now().Add(expiry).Unix(),
 		"iat": time.Now().Unix(),
 	}
@@ -54,7 +54,15 @@ func generateRefreshToken(secret string, username string, expiry time.Duration) 
 	return token.SignedString([]byte(secret))
 }
 
-func ValidateUseToken(publicKey *rsa.PublicKey, tokenString string) (string, error) {
+func claimsToID(claims jwt.MapClaims) (id int64, err error) {
+	idFloat, ok := claims["id"].(float64)
+	if !ok {
+		return 0, errors.New("invalid id claim")
+	}
+	return int64(idFloat), nil
+}
+
+func ValidateUseToken(publicKey *rsa.PublicKey, tokenString string) (id int64, err error) {
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
@@ -62,20 +70,16 @@ func ValidateUseToken(publicKey *rsa.PublicKey, tokenString string) (string, err
 		return publicKey, nil
 	})
 	if err != nil {
-		return "", err
+		return 0, err
 	}
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok || !token.Valid {
-		return "", errors.New("invalid token")
+		return 0, errors.New("invalid token")
 	}
-	username, ok := claims["sub"].(string)
-	if !ok {
-		return "", errors.New("invalid sub claim")
-	}
-	return username, nil
+	return claimsToID(claims)
 }
 
-func validateRefreshToken(secret string, tokenString string) (string, error) {
+func validateRefreshToken(secret string, tokenString string) (id int64, err error) {
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
@@ -83,15 +87,11 @@ func validateRefreshToken(secret string, tokenString string) (string, error) {
 		return []byte(secret), nil
 	})
 	if err != nil {
-		return "", err
+		return 0, err
 	}
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok || !token.Valid {
-		return "", errors.New("invalid token")
+		return 0, errors.New("invalid token")
 	}
-	username, ok := claims["sub"].(string)
-	if !ok {
-		return "", errors.New("invalid sub claim")
-	}
-	return username, nil
+	return claimsToID(claims)
 }

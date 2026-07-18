@@ -2,10 +2,13 @@ package userwebapp
 
 import (
 	"context"
+	"crypto/rsa"
 	"database/sql"
+	"strings"
 
 	"github.com/Kaese72/authentication/internal/logging"
 	"github.com/Kaese72/authentication/internal/persistence"
+	"github.com/Kaese72/authentication/internal/restwebapp"
 	"github.com/Kaese72/authentication/restmodels"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/go-sql-driver/mysql"
@@ -14,10 +17,11 @@ import (
 
 type webApp struct {
 	persistence persistence.UserManagementPersistenceDB
+	publicKey   *rsa.PublicKey
 }
 
-func NewWebApp(p persistence.UserManagementPersistenceDB) webApp {
-	return webApp{persistence: p}
+func NewWebApp(p persistence.UserManagementPersistenceDB, publicKey *rsa.PublicKey) webApp {
+	return webApp{persistence: p, publicKey: publicKey}
 }
 
 func (app webApp) ListUsers(ctx context.Context, input *struct{}) (*struct {
@@ -36,11 +40,11 @@ func (app webApp) ListUsers(ctx context.Context, input *struct{}) (*struct {
 }
 
 func (app webApp) GetUser(ctx context.Context, input *struct {
-	Username string `path:"username"`
+	ID int64 `path:"id"`
 }) (*struct {
 	Body restmodels.UserResponse
 }, error) {
-	user, err := app.persistence.GetUserByUsername(ctx, input.Username)
+	user, err := app.persistence.GetUserByID(ctx, input.ID)
 	if err == sql.ErrNoRows {
 		return nil, huma.Error404NotFound("user not found")
 	}
@@ -77,15 +81,49 @@ func (app webApp) CreateUser(ctx context.Context, input *struct {
 }
 
 func (app webApp) DeleteUser(ctx context.Context, input *struct {
-	Username string `path:"username"`
+	ID int64 `path:"id"`
 }) (*struct{}, error) {
-	err := app.persistence.DeleteUser(ctx, input.Username)
+	err := app.persistence.DeleteUser(ctx, input.ID)
 	if err == sql.ErrNoRows {
 		return nil, huma.Error404NotFound("user not found")
 	}
 	if err != nil {
 		logging.ErrorErr(err, ctx)
 		return nil, huma.Error500InternalServerError("failed to delete user")
+	}
+	return &struct{}{}, nil
+}
+
+func (app webApp) UpdateMyPassword(ctx context.Context, input *struct {
+	Authorization string `header:"Authorization"`
+	Body          restmodels.ChangePasswordRequest
+}) (*struct{}, error) {
+	tokenString := strings.TrimSpace(strings.TrimPrefix(input.Authorization, "Bearer "))
+	id, err := restwebapp.ValidateUseToken(app.publicKey, tokenString)
+	if err != nil {
+		return nil, huma.Error401Unauthorized("invalid or expired token")
+	}
+
+	user, err := app.persistence.GetUserByID(ctx, id)
+	if err == sql.ErrNoRows {
+		return nil, huma.Error404NotFound("user not found")
+	}
+	if err != nil {
+		logging.ErrorErr(err, ctx)
+		return nil, huma.Error500InternalServerError("failed to get user")
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(input.Body.CurrentPassword)); err != nil {
+		return nil, huma.Error401Unauthorized("current password is incorrect")
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(input.Body.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		logging.ErrorErr(err, ctx)
+		return nil, huma.Error500InternalServerError("failed to hash password")
+	}
+	if err := app.persistence.UpdatePassword(ctx, user.Username, string(hash)); err != nil {
+		logging.ErrorErr(err, ctx)
+		return nil, huma.Error500InternalServerError("failed to update password")
 	}
 	return &struct{}{}, nil
 }

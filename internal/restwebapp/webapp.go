@@ -46,12 +46,12 @@ func (app webApp) buildRefreshCookie(token string) *http.Cookie {
 	}
 }
 
-func (app webApp) issueTokenPair(username string) (useToken string, refreshToken string, err error) {
-	useToken, err = generateUseToken(app.privateKey, username, app.useTokenExpiry)
+func (app webApp) issueTokenPair(id int64) (useToken string, refreshToken string, err error) {
+	useToken, err = generateUseToken(app.privateKey, id, app.useTokenExpiry)
 	if err != nil {
 		return
 	}
-	refreshToken, err = generateRefreshToken(app.refreshSecret, username, app.refreshTokenExpiry)
+	refreshToken, err = generateRefreshToken(app.refreshSecret, id, app.refreshTokenExpiry)
 	return
 }
 
@@ -65,9 +65,9 @@ func (app webApp) Login(ctx context.Context, input *struct {
 	// Try refresh cookie first
 	fakeReq := &http.Request{Header: http.Header{"Cookie": []string{input.CookieHeader}}}
 	if cookie, err := fakeReq.Cookie(refreshCookieName); err == nil {
-		username, err := validateRefreshToken(app.refreshSecret, cookie.Value)
+		id, err := validateRefreshToken(app.refreshSecret, cookie.Value)
 		if err == nil {
-			useToken, refreshToken, err := app.issueTokenPair(username)
+			useToken, refreshToken, err := app.issueTokenPair(id)
 			if err != nil {
 				logging.ErrorErr(err, ctx)
 				return nil, huma.Error500InternalServerError("token generation failed")
@@ -101,7 +101,7 @@ func (app webApp) Login(ctx context.Context, input *struct {
 		return nil, huma.Error401Unauthorized("invalid credentials")
 	}
 
-	useToken, refreshToken, err := app.issueTokenPair(user.Username)
+	useToken, refreshToken, err := app.issueTokenPair(user.ID)
 	if err != nil {
 		logging.ErrorErr(err, ctx)
 		return nil, huma.Error500InternalServerError("token generation failed")

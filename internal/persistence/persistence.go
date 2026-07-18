@@ -19,7 +19,9 @@ type SetupPersistenceDB interface {
 
 type UserManagementPersistenceDB interface {
 	ListUsers(ctx context.Context) ([]User, error)
+	GetUserByID(ctx context.Context, id int64) (User, error)
 	GetUserByUsername(ctx context.Context, username string) (User, error)
 	CreateUser(ctx context.Context, username string, passwordHash string) error
-	DeleteUser(ctx context.Context, username string) error
+	DeleteUser(ctx context.Context, id int64) error
+	UpdatePassword(ctx context.Context, username string, passwordHash string) error
 }

@@ -48,7 +48,7 @@ func main() {
 
 	webapp := restwebapp.NewWebApp(dbPersistence, privateKey, config.Loaded.Auth.RefreshSecret, useTokenExpiry, refreshTokenExpiry)
 	setupWebapp := setupwebapp.NewWebApp(dbPersistence)
-	userWebapp := userwebapp.NewWebApp(dbPersistence)
+	userWebapp := userwebapp.NewWebApp(dbPersistence, &privateKey.PublicKey)
 
 	router := mux.NewRouter()
 	router.Use(middleware.UseTokenMiddleware(
@@ -70,8 +70,9 @@ func main() {
 
 	huma.Get(api, "/authentication-service/v0/users", userWebapp.ListUsers)
 	huma.Post(api, "/authentication-service/v0/users", userWebapp.CreateUser)
-	huma.Get(api, "/authentication-service/v0/users/{username}", userWebapp.GetUser)
-	huma.Delete(api, "/authentication-service/v0/users/{username}", userWebapp.DeleteUser)
+	huma.Get(api, "/authentication-service/v0/users/{id}", userWebapp.GetUser)
+	huma.Delete(api, "/authentication-service/v0/users/{id}", userWebapp.DeleteUser)
+	huma.Put(api, "/authentication-service/v0/users/update-my-password", userWebapp.UpdateMyPassword)
 
 	if err := http.ListenAndServe(":8080", router); err != nil {
 		logging.Error(err.Error(), context.TODO())
