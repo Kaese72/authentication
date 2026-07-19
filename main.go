@@ -71,6 +71,7 @@ func main() {
 	huma.Get(api, "/authentication-service/v0/users", userWebapp.ListUsers)
 	huma.Post(api, "/authentication-service/v0/users", userWebapp.CreateUser)
 	huma.Get(api, "/authentication-service/v0/users/{id}", userWebapp.GetUser)
+	huma.Put(api, "/authentication-service/v0/users/{id}", userWebapp.UpdateUser)
 	huma.Delete(api, "/authentication-service/v0/users/{id}", userWebapp.DeleteUser)
 	huma.Put(api, "/authentication-service/v0/users/me/update-password", userWebapp.UpdateMyPassword)
 

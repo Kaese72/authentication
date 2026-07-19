@@ -34,7 +34,7 @@ func (app webApp) ListUsers(ctx context.Context, input *struct{}) (*struct {
 	}
 	resp := make([]restmodels.UserResponse, len(users))
 	for i, u := range users {
-		resp[i] = restmodels.UserResponse{ID: u.ID, Username: u.Username}
+		resp[i] = restmodels.UserResponse{ID: u.ID, Username: u.Username, Name: u.Name, Surname: u.Surname, Email: u.Email}
 	}
 	return &struct{ Body []restmodels.UserResponse }{Body: resp}, nil
 }
@@ -52,7 +52,7 @@ func (app webApp) GetUser(ctx context.Context, input *struct {
 		logging.ErrorErr(err, ctx)
 		return nil, huma.Error500InternalServerError("failed to get user")
 	}
-	return &struct{ Body restmodels.UserResponse }{Body: restmodels.UserResponse{ID: user.ID, Username: user.Username}}, nil
+	return &struct{ Body restmodels.UserResponse }{Body: restmodels.UserResponse{ID: user.ID, Username: user.Username, Name: user.Name, Surname: user.Surname, Email: user.Email}}, nil
 }
 
 func (app webApp) CreateUser(ctx context.Context, input *struct {
@@ -65,7 +65,7 @@ func (app webApp) CreateUser(ctx context.Context, input *struct {
 		logging.ErrorErr(err, ctx)
 		return nil, huma.Error500InternalServerError("failed to hash password")
 	}
-	if err := app.persistence.CreateUser(ctx, input.Body.Username, string(hash)); err != nil {
+	if err := app.persistence.CreateUser(ctx, input.Body.Username, string(hash), input.Body.Name, input.Body.Surname, input.Body.Email); err != nil {
 		if mysqlErr, ok := err.(*mysql.MySQLError); ok && mysqlErr.Number == 1062 {
 			return nil, huma.Error409Conflict("username already exists")
 		}
@@ -77,7 +77,28 @@ func (app webApp) CreateUser(ctx context.Context, input *struct {
 		logging.ErrorErr(err, ctx)
 		return nil, huma.Error500InternalServerError("failed to retrieve created user")
 	}
-	return &struct{ Body restmodels.UserResponse }{Body: restmodels.UserResponse{ID: user.ID, Username: user.Username}}, nil
+	return &struct{ Body restmodels.UserResponse }{Body: restmodels.UserResponse{ID: user.ID, Username: user.Username, Name: user.Name, Surname: user.Surname, Email: user.Email}}, nil
+}
+
+func (app webApp) UpdateUser(ctx context.Context, input *struct {
+	ID   int64 `path:"id"`
+	Body restmodels.UpdateUserRequest
+}) (*struct {
+	Body restmodels.UserResponse
+}, error) {
+	if err := app.persistence.UpdateUser(ctx, input.ID, input.Body.Name, input.Body.Surname, input.Body.Email); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, huma.Error404NotFound("user not found")
+		}
+		logging.ErrorErr(err, ctx)
+		return nil, huma.Error500InternalServerError("failed to update user")
+	}
+	user, err := app.persistence.GetUserByID(ctx, input.ID)
+	if err != nil {
+		logging.ErrorErr(err, ctx)
+		return nil, huma.Error500InternalServerError("failed to retrieve updated user")
+	}
+	return &struct{ Body restmodels.UserResponse }{Body: restmodels.UserResponse{ID: user.ID, Username: user.Username, Name: user.Name, Surname: user.Surname, Email: user.Email}}, nil
 }
 
 func (app webApp) DeleteUser(ctx context.Context, input *struct {

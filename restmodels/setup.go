@@ -5,6 +5,9 @@ type SetupStatus struct {
 }
 
 type SetupUserRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
+	Username string  `json:"username"`
+	Password string  `json:"password"`
+	Name     string  `json:"name"`
+	Surname  string  `json:"surname"`
+	Email    *string `json:"email,omitempty"`
 }

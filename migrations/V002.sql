@@ -1,0 +1,10 @@
+ALTER TABLE users
+    ADD COLUMN name VARCHAR(255) NULL,
+    ADD COLUMN surname VARCHAR(255) NULL,
+    ADD COLUMN email VARCHAR(255) NULL;
+
+UPDATE users SET name = username, surname = username WHERE name IS NULL;
+
+ALTER TABLE users
+    MODIFY COLUMN name VARCHAR(255) NOT NULL,
+    MODIFY COLUMN surname VARCHAR(255) NOT NULL;

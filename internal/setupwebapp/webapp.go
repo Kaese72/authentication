@@ -49,7 +49,7 @@ func (app webApp) SetupUser(ctx context.Context, input *struct {
 		return nil, huma.Error500InternalServerError("failed to hash password")
 	}
 
-	if err := app.persistence.CreateUser(ctx, input.Body.Username, string(hash)); err != nil {
+	if err := app.persistence.CreateUser(ctx, input.Body.Username, string(hash), input.Body.Name, input.Body.Surname, input.Body.Email); err != nil {
 		logging.ErrorErr(err, ctx)
 		return nil, huma.Error500InternalServerError("failed to create user")
 	}

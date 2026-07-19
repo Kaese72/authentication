@@ -27,9 +27,9 @@ func NewMariadbPersistence(conf config.DatabaseConfig) (mariadbPersistence, erro
 }
 
 func (m mariadbPersistence) GetUserByUsername(ctx context.Context, username string) (persistence.User, error) {
-	row := m.db.QueryRowContext(ctx, "SELECT id, username, passwordHash FROM users WHERE username = ?", username)
+	row := m.db.QueryRowContext(ctx, "SELECT id, username, name, surname, email, passwordHash FROM users WHERE username = ?", username)
 	var user persistence.User
-	err := row.Scan(&user.ID, &user.Username, &user.PasswordHash)
+	err := row.Scan(&user.ID, &user.Username, &user.Name, &user.Surname, &user.Email, &user.PasswordHash)
 	if err != nil {
 		return persistence.User{}, err
 	}
@@ -37,9 +37,9 @@ func (m mariadbPersistence) GetUserByUsername(ctx context.Context, username stri
 }
 
 func (m mariadbPersistence) GetUserByID(ctx context.Context, id int64) (persistence.User, error) {
-	row := m.db.QueryRowContext(ctx, "SELECT id, username, passwordHash FROM users WHERE id = ?", id)
+	row := m.db.QueryRowContext(ctx, "SELECT id, username, name, surname, email, passwordHash FROM users WHERE id = ?", id)
 	var user persistence.User
-	err := row.Scan(&user.ID, &user.Username, &user.PasswordHash)
+	err := row.Scan(&user.ID, &user.Username, &user.Name, &user.Surname, &user.Email, &user.PasswordHash)
 	if err != nil {
 		return persistence.User{}, err
 	}
@@ -55,13 +55,28 @@ func (m mariadbPersistence) UserExists(ctx context.Context) (bool, error) {
 	return count > 0, nil
 }
 
-func (m mariadbPersistence) CreateUser(ctx context.Context, username string, passwordHash string) error {
-	_, err := m.db.ExecContext(ctx, "INSERT INTO users (username, passwordHash) VALUES (?, ?)", username, passwordHash)
+func (m mariadbPersistence) CreateUser(ctx context.Context, username string, passwordHash string, name string, surname string, email *string) error {
+	_, err := m.db.ExecContext(ctx, "INSERT INTO users (username, passwordHash, name, surname, email) VALUES (?, ?, ?, ?, ?)", username, passwordHash, name, surname, email)
 	return err
 }
 
+func (m mariadbPersistence) UpdateUser(ctx context.Context, id int64, name string, surname string, email *string) error {
+	result, err := m.db.ExecContext(ctx, "UPDATE users SET name = ?, surname = ?, email = ? WHERE id = ?", name, surname, email, id)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (m mariadbPersistence) ListUsers(ctx context.Context) ([]persistence.User, error) {
-	rows, err := m.db.QueryContext(ctx, "SELECT id, username FROM users ORDER BY username")
+	rows, err := m.db.QueryContext(ctx, "SELECT id, username, name, surname, email FROM users ORDER BY username")
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +84,7 @@ func (m mariadbPersistence) ListUsers(ctx context.Context) ([]persistence.User, 
 	var users []persistence.User
 	for rows.Next() {
 		var user persistence.User
-		if err := rows.Scan(&user.ID, &user.Username); err != nil {
+		if err := rows.Scan(&user.ID, &user.Username, &user.Name, &user.Surname, &user.Email); err != nil {
 			return nil, err
 		}
 		users = append(users, user)
