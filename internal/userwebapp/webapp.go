@@ -24,10 +24,14 @@ func NewWebApp(p persistence.UserManagementPersistenceDB, publicKey *rsa.PublicK
 	return webApp{persistence: p, publicKey: publicKey}
 }
 
-func (app webApp) ListUsers(ctx context.Context, input *struct{}) (*struct {
-	Body []restmodels.UserResponse
+func (app webApp) ListUsers(ctx context.Context, input *struct {
+	Offset int `query:"offset" default:"0" minimum:"0" doc:"number of matching users to skip"`
+	Limit  int `query:"limit" default:"50" minimum:"1" maximum:"200" doc:"maximum number of users to return"`
+}) (*struct {
+	TotalCount int `header:"X-Total-Count" doc:"total number of users, ignoring pagination"`
+	Body       []restmodels.UserResponse
 }, error) {
-	users, err := app.persistence.ListUsers(ctx)
+	users, total, err := app.persistence.ListUsers(ctx, restmodels.Pagination{Offset: input.Offset, Limit: input.Limit})
 	if err != nil {
 		logging.ErrorErr(err, ctx)
 		return nil, huma.Error500InternalServerError("failed to list users")
@@ -36,7 +40,10 @@ func (app webApp) ListUsers(ctx context.Context, input *struct{}) (*struct {
 	for i, u := range users {
 		resp[i] = restmodels.UserResponse{ID: u.ID, Username: u.Username, Name: u.Name, Surname: u.Surname, Email: u.Email}
 	}
-	return &struct{ Body []restmodels.UserResponse }{Body: resp}, nil
+	return &struct {
+		TotalCount int `header:"X-Total-Count" doc:"total number of users, ignoring pagination"`
+		Body       []restmodels.UserResponse
+	}{TotalCount: total, Body: resp}, nil
 }
 
 func (app webApp) GetUser(ctx context.Context, input *struct {

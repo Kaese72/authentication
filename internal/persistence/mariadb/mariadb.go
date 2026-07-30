@@ -8,6 +8,7 @@ import (
 	"github.com/Kaese72/authentication/internal/config"
 	"github.com/Kaese72/authentication/internal/logging"
 	"github.com/Kaese72/authentication/internal/persistence"
+	"github.com/Kaese72/authentication/restmodels"
 	"go.elastic.co/apm/module/apmsql"
 )
 
@@ -75,21 +76,53 @@ func (m mariadbPersistence) UpdateUser(ctx context.Context, id int64, name strin
 	return nil
 }
 
-func (m mariadbPersistence) ListUsers(ctx context.Context) ([]persistence.User, error) {
-	rows, err := m.db.QueryContext(ctx, "SELECT id, username, name, surname, email FROM users ORDER BY username")
+// paginationClause returns the SQL "LIMIT ? OFFSET ?" fragment and its arguments
+// for the given pagination. A zero Limit means unbounded, in which case no
+// clause is applied.
+func paginationClause(pagination restmodels.Pagination) (string, []any) {
+	if pagination.Limit <= 0 {
+		return "", nil
+	}
+	offset := pagination.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	return " LIMIT ? OFFSET ?", []any{pagination.Limit, offset}
+}
+
+// countRows executes "SELECT COUNT(*) FROM <table>" and returns the total
+// number of rows, ignoring pagination.
+func countRows(ctx context.Context, db *sql.DB, table string) (int, error) {
+	var total int
+	row := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table)
+	if err := row.Scan(&total); err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
+func (m mariadbPersistence) ListUsers(ctx context.Context, pagination restmodels.Pagination) ([]persistence.User, int, error) {
+	total, err := countRows(ctx, m.db, "users")
 	if err != nil {
-		return nil, err
+		return nil, 0, err
+	}
+	query := "SELECT id, username, name, surname, email FROM users ORDER BY username"
+	limitClause, limitArgs := paginationClause(pagination)
+	query += limitClause
+	rows, err := m.db.QueryContext(ctx, query, limitArgs...)
+	if err != nil {
+		return nil, 0, err
 	}
 	defer rows.Close()
 	var users []persistence.User
 	for rows.Next() {
 		var user persistence.User
 		if err := rows.Scan(&user.ID, &user.Username, &user.Name, &user.Surname, &user.Email); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		users = append(users, user)
 	}
-	return users, rows.Err()
+	return users, total, rows.Err()
 }
 
 func (m mariadbPersistence) DeleteUser(ctx context.Context, id int64) error {
