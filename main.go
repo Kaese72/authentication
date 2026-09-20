@@ -59,6 +59,7 @@ func main() {
 	router.Use(usertoken.Middleware(
 		&privateKey.PublicKey,
 		"/authentication-service/v0/authentication/login",
+		"/authentication-service/v0/authentication/logout",
 		"/authentication-service/v0/authentication/cloud/",
 		"/authentication-service/v0/setup/",
 		"/authentication-service/docs",
@@ -70,6 +71,7 @@ func main() {
 	api := humamux.New(router, humaConfig)
 
 	huma.Post(api, "/authentication-service/v0/authentication/login", webapp.Login)
+	huma.Post(api, "/authentication-service/v0/authentication/logout", webapp.Logout)
 	huma.Get(api, "/authentication-service/v0/authentication/cloud/status", webapp.CloudStatus)
 	huma.Post(api, "/authentication-service/v0/authentication/cloud/start", webapp.CloudStart)
 	huma.Post(api, "/authentication-service/v0/authentication/cloud/complete", webapp.CloudComplete)

@@ -55,6 +55,18 @@ func (app webApp) buildRefreshCookie(token string) *http.Cookie {
 	}
 }
 
+type logoutResult struct {
+	SetCookie string `header:"Set-Cookie"`
+}
+
+// Logout expires the refresh cookie so the browser cannot silently log back in.
+// It needs no authentication: an expired session must still be able to log out.
+func (app webApp) Logout(ctx context.Context, input *struct{}) (*logoutResult, error) {
+	cookie := app.buildRefreshCookie("")
+	cookie.MaxAge = -1
+	return &logoutResult{SetCookie: cookie.String()}, nil
+}
+
 type loginResult struct {
 	SetCookie string `header:"Set-Cookie"`
 	Body      restmodels.LoginResponse
