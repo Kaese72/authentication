@@ -104,3 +104,62 @@ username/password credentials.
 
 Successful authentication leads to a `refresh` token and `use` token.
 Both failing leads to HTTP/401.
+
+Presenting a `refresh` token also requires the user it was issued for to still
+exist; a token for a deleted user is treated as no token at all.
+
+### Logging in with Humi Cloud
+
+If the appliance is enrolled with the cloud (see `cloud-connect`), the login
+page offers **Log in with Humi Cloud**: anyone who is a member of the cloud
+Group that owns the appliance can log in without a local password. The flow
+is redirect-based, and never puts a cloud token on the appliance - see
+appliance-registry's README, "Cloud login", for the cloud half.
+
+* `GET  /authentication-service/v0/authentication/cloud/status` - whether to
+  offer it (cloud login is configured and the appliance is enrolled).
+* `POST /authentication-service/v0/authentication/cloud/start` - takes the
+  UI's callback URL, remembers a one-time `state`, and returns that `state`
+  and the cloud URL to send the browser to. The UI keeps the `state` for the
+  tab and refuses a callback whose `state` differs, so a login started
+  elsewhere can't be planted into it.
+* `POST /authentication-service/v0/authentication/cloud/complete` - takes the
+  `code` and `state` the cloud redirected back with. It consumes the `state`,
+  redeems the `code` with the cloud (only a user who currently has access
+  gets an identity back), finds or creates the local user, and returns a
+  `use` token and `refresh` cookie exactly like a password login.
+
+The authentication service never talks to the cloud itself: it goes through
+`cloud-connect-client`'s internal listener (port 8081, never routed by the
+ingress, so not reachable through the cloud tunnel), which holds the
+appliance's cloud credentials. Configure it with `CLOUD_CONNECT_CLIENT_URL`
+and `CLOUD_SERVICE_TOKEN` (which must be one of the client's
+`AUTH_INTERNAL_SERVICE_TOKENS`). With no `CLOUD_CONNECT_CLIENT_URL`, cloud
+login is simply off.
+
+**Cloud users.** A cloud user gets a local `users` row linked by
+`cloudUserId`, with no password - they can only log in through the cloud, and
+cannot set a local password (which would be a way in that never re-checks
+their access). Users are matched on the cloud user id, never on username, so a
+cloud user cannot take over an existing local account; if their cloud username
+is taken locally they get `<username>-cloud-<id>`. Name and email follow the
+cloud on each login. Every cloud member of the owning Group currently gets a
+full local user; there is no per-user role on the appliance yet.
+
+**Re-checking access.** When a cloud user's `refresh` token is presented, the
+service asks the cloud (via `cloud-connect-client`) whether they still have
+access, instead of just renewing:
+
+* **Yes** - renew as usual, stamping the time of the check into the new
+  `refresh` token (`cv` claim).
+* **No** (removed from the Group, appliance revoked, or the appliance's cloud
+  credentials no longer accepted) or the appliance is no longer enrolled -
+  HTTP/401 straight away.
+* **Cloud unreachable** - the appliance is meant to keep working without
+  internet, so the session is renewed anyway, but only while the last
+  successful check (`cv`) is less than `CLOUD_ACCESS_GRACE_HOURS` old
+  (default 24). The timestamp is *not* advanced during an outage, so blocking
+  the cloud cannot extend access past the grace period.
+
+Since `use` tokens live 10 minutes and the UI refreshes every 8, a revocation
+takes effect within about ten minutes.

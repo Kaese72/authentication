@@ -39,11 +39,19 @@ func generateUseToken(privateKey *rsa.PrivateKey, id int64, expiry time.Duration
 	return usertoken.Sign(privateKey, id, expiry)
 }
 
-func generateRefreshToken(secret string, id int64, expiry time.Duration) (string, error) {
+// claimCloudVerified is the refresh-token claim holding the unix time the
+// user's cloud access was last successfully confirmed. Only cloud users'
+// refresh tokens carry it.
+const claimCloudVerified = "cv"
+
+func generateRefreshToken(secret string, id int64, expiry time.Duration, cloudVerifiedAt time.Time) (string, error) {
 	claims := jwt.MapClaims{
 		"id":  id,
 		"exp": time.Now().Add(expiry).Unix(),
 		"iat": time.Now().Unix(),
+	}
+	if !cloudVerifiedAt.IsZero() {
+		claims[claimCloudVerified] = cloudVerifiedAt.Unix()
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString([]byte(secret))
@@ -61,7 +69,10 @@ func ValidateUseToken(publicKey *rsa.PublicKey, tokenString string) (id int64, e
 	return usertoken.Verify(publicKey, tokenString)
 }
 
-func validateRefreshToken(secret string, tokenString string) (id int64, err error) {
+// validateRefreshToken verifies a refresh token and returns the user id it
+// was issued for and, for cloud users, when their cloud access was last
+// confirmed (zero if the token carries no such claim).
+func validateRefreshToken(secret string, tokenString string) (id int64, cloudVerifiedAt time.Time, err error) {
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
@@ -69,11 +80,18 @@ func validateRefreshToken(secret string, tokenString string) (id int64, err erro
 		return []byte(secret), nil
 	})
 	if err != nil {
-		return 0, err
+		return 0, time.Time{}, err
 	}
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok || !token.Valid {
-		return 0, errors.New("invalid token")
+		return 0, time.Time{}, errors.New("invalid token")
 	}
-	return claimsToID(claims)
+	id, err = claimsToID(claims)
+	if err != nil {
+		return 0, time.Time{}, err
+	}
+	if cv, ok := claims[claimCloudVerified].(float64); ok {
+		cloudVerifiedAt = time.Unix(int64(cv), 0)
+	}
+	return id, cloudVerifiedAt, nil
 }

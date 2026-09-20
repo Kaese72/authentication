@@ -42,9 +42,37 @@ func (conf AuthConfig) Validate() error {
 	return nil
 }
 
+// CloudConfig configures "log in with Humi Cloud". It is optional: with no
+// ConnectClientURL, the feature is off and the login page does not offer it.
+type CloudConfig struct {
+	// ConnectClientURL is the base URL of this appliance's
+	// cloud-connect-client service, e.g. http://cloud-connect-client:8080.
+	ConnectClientURL string `json:"connect-client-url" mapstructure:"connect-client-url"`
+	// ServiceToken authenticates to cloud-connect-client's internal
+	// endpoints; it must be one of that service's auth internal-service-tokens.
+	ServiceToken string `json:"service-token" mapstructure:"service-token"`
+	// StateExpiryMinutes bounds how long a browser has to complete the
+	// cloud leg of a login before coming back.
+	StateExpiryMinutes int `json:"state-expiry-minutes" mapstructure:"state-expiry-minutes"`
+	// AccessGraceHours is how long a cloud user's session may keep being
+	// refreshed when the cloud cannot be reached to re-check their access,
+	// measured from the last successful check. The appliance is meant to
+	// keep working through an internet outage; an explicit "no access" from
+	// the cloud always ends the session immediately regardless.
+	AccessGraceHours int `json:"access-grace-hours" mapstructure:"access-grace-hours"`
+}
+
+func (conf CloudConfig) Validate() error {
+	if conf.ConnectClientURL != "" && conf.ServiceToken == "" {
+		return errors.New("must supply cloud service-token when cloud connect-client-url is set")
+	}
+	return nil
+}
+
 type Config struct {
 	Database DatabaseConfig `json:"database" mapstructure:"database"`
 	Auth     AuthConfig     `json:"auth" mapstructure:"auth"`
+	Cloud    CloudConfig    `json:"cloud" mapstructure:"cloud"`
 }
 
 func (conf Config) Validate() error {
@@ -52,6 +80,9 @@ func (conf Config) Validate() error {
 		return err
 	}
 	if err := conf.Auth.Validate(); err != nil {
+		return err
+	}
+	if err := conf.Cloud.Validate(); err != nil {
 		return err
 	}
 	return nil
@@ -76,6 +107,13 @@ func init() {
 	viper.SetDefault("auth.use-token-expiry-minutes", 10)
 	viper.BindEnv("auth.refresh-token-expiry-days")
 	viper.SetDefault("auth.refresh-token-expiry-days", 7)
+
+	viper.BindEnv("cloud.connect-client-url")
+	viper.BindEnv("cloud.service-token")
+	viper.BindEnv("cloud.state-expiry-minutes")
+	viper.SetDefault("cloud.state-expiry-minutes", 5)
+	viper.BindEnv("cloud.access-grace-hours")
+	viper.SetDefault("cloud.access-grace-hours", 24)
 
 	viper.BindEnv("logging.stdout")
 	viper.SetDefault("logging.stdout", true)

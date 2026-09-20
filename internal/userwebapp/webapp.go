@@ -140,6 +140,10 @@ func (app webApp) UpdateMyPassword(ctx context.Context, input *struct {
 		logging.ErrorErr(err, ctx)
 		return nil, huma.Error500InternalServerError("failed to get user")
 	}
+	// A local password would be a way in that never re-checks cloud access.
+	if user.CloudUserID != nil {
+		return nil, huma.Error403Forbidden("cloud users sign in through the cloud and have no local password")
+	}
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(input.Body.CurrentPassword)); err != nil {
 		return nil, huma.Error401Unauthorized("current password is incorrect")
 	}

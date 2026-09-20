@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/Kaese72/authentication/internal/config"
 	"github.com/Kaese72/authentication/internal/logging"
@@ -27,24 +28,57 @@ func NewMariadbPersistence(conf config.DatabaseConfig) (mariadbPersistence, erro
 	return mariadbPersistence{db: db}, nil
 }
 
-func (m mariadbPersistence) GetUserByUsername(ctx context.Context, username string) (persistence.User, error) {
-	row := m.db.QueryRowContext(ctx, "SELECT id, username, name, surname, email, passwordHash FROM users WHERE username = ?", username)
+// userColumns is the column list scanUser expects. passwordHash is NULL for
+// cloud users and is surfaced as the empty string.
+const userColumns = "id, username, name, surname, email, COALESCE(passwordHash, ''), cloudUserId"
+
+func scanUser(row interface{ Scan(...any) error }) (persistence.User, error) {
 	var user persistence.User
-	err := row.Scan(&user.ID, &user.Username, &user.Name, &user.Surname, &user.Email, &user.PasswordHash)
-	if err != nil {
+	var cloudUserID sql.NullInt64
+	if err := row.Scan(&user.ID, &user.Username, &user.Name, &user.Surname, &user.Email, &user.PasswordHash, &cloudUserID); err != nil {
 		return persistence.User{}, err
+	}
+	if cloudUserID.Valid {
+		user.CloudUserID = &cloudUserID.Int64
 	}
 	return user, nil
 }
 
+func (m mariadbPersistence) GetUserByUsername(ctx context.Context, username string) (persistence.User, error) {
+	return scanUser(m.db.QueryRowContext(ctx, "SELECT "+userColumns+" FROM users WHERE username = ?", username))
+}
+
 func (m mariadbPersistence) GetUserByID(ctx context.Context, id int64) (persistence.User, error) {
-	row := m.db.QueryRowContext(ctx, "SELECT id, username, name, surname, email, passwordHash FROM users WHERE id = ?", id)
-	var user persistence.User
-	err := row.Scan(&user.ID, &user.Username, &user.Name, &user.Surname, &user.Email, &user.PasswordHash)
-	if err != nil {
-		return persistence.User{}, err
+	return scanUser(m.db.QueryRowContext(ctx, "SELECT "+userColumns+" FROM users WHERE id = ?", id))
+}
+
+func (m mariadbPersistence) GetUserByCloudUserID(ctx context.Context, cloudUserID int64) (persistence.User, error) {
+	return scanUser(m.db.QueryRowContext(ctx, "SELECT "+userColumns+" FROM users WHERE cloudUserId = ?", cloudUserID))
+}
+
+func (m mariadbPersistence) CreateCloudUser(ctx context.Context, cloudUserID int64, username string, name string, surname string, email *string) error {
+	_, err := m.db.ExecContext(ctx, "INSERT INTO users (username, passwordHash, name, surname, email, cloudUserId) VALUES (?, NULL, ?, ?, ?, ?)", username, name, surname, email, cloudUserID)
+	return err
+}
+
+func (m mariadbPersistence) SaveCloudLoginState(ctx context.Context, state string, expiresAt time.Time) error {
+	if _, err := m.db.ExecContext(ctx, "DELETE FROM cloudLoginStates WHERE expiresAt < ?", time.Now().UTC()); err != nil {
+		return err
 	}
-	return user, nil
+	_, err := m.db.ExecContext(ctx, "INSERT INTO cloudLoginStates (state, expiresAt) VALUES (?, ?)", state, expiresAt.UTC())
+	return err
+}
+
+func (m mariadbPersistence) ConsumeCloudLoginState(ctx context.Context, state string) (bool, error) {
+	result, err := m.db.ExecContext(ctx, "DELETE FROM cloudLoginStates WHERE state = ? AND expiresAt > ?", state, time.Now().UTC())
+	if err != nil {
+		return false, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n == 1, nil
 }
 
 func (m mariadbPersistence) UserExists(ctx context.Context) (bool, error) {

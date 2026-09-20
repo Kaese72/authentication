@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/Kaese72/authentication/internal/cloudclient"
 	"github.com/Kaese72/authentication/internal/config"
 	"github.com/Kaese72/authentication/internal/logging"
 	"github.com/Kaese72/authentication/internal/persistence/mariadb"
@@ -46,7 +47,11 @@ func main() {
 	useTokenExpiry := time.Duration(config.Loaded.Auth.UseTokenExpiryMinutes) * time.Minute
 	refreshTokenExpiry := time.Duration(config.Loaded.Auth.RefreshTokenExpiryDays) * 24 * time.Hour
 
-	webapp := restwebapp.NewWebApp(dbPersistence, privateKey, config.Loaded.Auth.RefreshSecret, useTokenExpiry, refreshTokenExpiry)
+	cloud := cloudclient.New(config.Loaded.Cloud.ConnectClientURL, config.Loaded.Cloud.ServiceToken)
+	cloudStateExpiry := time.Duration(config.Loaded.Cloud.StateExpiryMinutes) * time.Minute
+	cloudAccessGrace := time.Duration(config.Loaded.Cloud.AccessGraceHours) * time.Hour
+
+	webapp := restwebapp.NewWebApp(dbPersistence, privateKey, config.Loaded.Auth.RefreshSecret, useTokenExpiry, refreshTokenExpiry, cloud, cloudStateExpiry, cloudAccessGrace)
 	setupWebapp := setupwebapp.NewWebApp(dbPersistence)
 	userWebapp := userwebapp.NewWebApp(dbPersistence, &privateKey.PublicKey)
 
@@ -54,6 +59,7 @@ func main() {
 	router.Use(usertoken.Middleware(
 		&privateKey.PublicKey,
 		"/authentication-service/v0/authentication/login",
+		"/authentication-service/v0/authentication/cloud/",
 		"/authentication-service/v0/setup/",
 		"/authentication-service/docs",
 		"/authentication-service/openapi",
@@ -64,6 +70,9 @@ func main() {
 	api := humamux.New(router, humaConfig)
 
 	huma.Post(api, "/authentication-service/v0/authentication/login", webapp.Login)
+	huma.Get(api, "/authentication-service/v0/authentication/cloud/status", webapp.CloudStatus)
+	huma.Post(api, "/authentication-service/v0/authentication/cloud/start", webapp.CloudStart)
+	huma.Post(api, "/authentication-service/v0/authentication/cloud/complete", webapp.CloudComplete)
 
 	huma.Get(api, "/authentication-service/v0/setup/status", setupWebapp.SetupStatus)
 	huma.Post(api, "/authentication-service/v0/setup/user", setupWebapp.SetupUser)
