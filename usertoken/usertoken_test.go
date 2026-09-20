@@ -1,10 +1,16 @@
 package usertoken
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -120,4 +126,71 @@ func TestMiddleware(t *testing.T) {
 			}
 		})
 	}
+}
+
+func writePEM(t *testing.T, blockType string, der []byte) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "key.pem")
+	if err := os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: blockType, Bytes: der}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestLoadPublicKeyFromFile(t *testing.T) {
+	key := newKey(t)
+	der, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("loads a PKIX RSA key that verifies tokens", func(t *testing.T) {
+		pub, err := LoadPublicKeyFromFile(writePEM(t, "PUBLIC KEY", der))
+		if err != nil {
+			t.Fatal(err)
+		}
+		token, err := Sign(key, 7, time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if id, err := Verify(pub, token); err != nil || id != 7 {
+			t.Fatalf("Verify with loaded key = (%d, %v), want (7, nil)", id, err)
+		}
+	})
+
+	t.Run("missing file", func(t *testing.T) {
+		if _, err := LoadPublicKeyFromFile(filepath.Join(t.TempDir(), "nope.pem")); err == nil {
+			t.Fatal("expected an error")
+		}
+	})
+
+	t.Run("no PEM block", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "key.pem")
+		if err := os.WriteFile(path, []byte("not pem"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := LoadPublicKeyFromFile(path); err == nil {
+			t.Fatal("expected an error")
+		}
+	})
+
+	t.Run("PEM that is not a public key", func(t *testing.T) {
+		if _, err := LoadPublicKeyFromFile(writePEM(t, "PUBLIC KEY", []byte("garbage"))); err == nil {
+			t.Fatal("expected an error")
+		}
+	})
+
+	t.Run("non-RSA public key", func(t *testing.T) {
+		ecKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ecDER, err := x509.MarshalPKIXPublicKey(&ecKey.PublicKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := LoadPublicKeyFromFile(writePEM(t, "PUBLIC KEY", ecDER)); err == nil {
+			t.Fatal("expected an error for a non-RSA key")
+		}
+	})
 }

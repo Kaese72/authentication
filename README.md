@@ -54,6 +54,8 @@ instead of re-implementing the format:
   rejected.
 * `usertoken.UserID(ctx)` returns the authenticated user's ID (the `id`
   claim) inside a handler behind that middleware.
+* `usertoken.LoadPublicKeyFromFile(path)` loads this service's PKIX
+  PEM-encoded RSA public key, for passing to the above.
 * `usertoken.Verify` / `usertoken.Sign` are the underlying verify and
   issue functions. Only this service, which holds the private key, should
   ever call `Sign`.

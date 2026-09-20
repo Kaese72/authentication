@@ -17,9 +17,12 @@ package usertoken
 import (
 	"context"
 	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -29,6 +32,28 @@ import (
 
 // ClaimID is the name of the claim holding the authenticated user's ID.
 const ClaimID = "id"
+
+// LoadPublicKeyFromFile reads the authentication service's PKIX PEM-encoded
+// RSA public key from disk, for use with Verify and Middleware.
+func LoadPublicKeyFromFile(path string) (*rsa.PublicKey, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read public key file: %w", err)
+	}
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return nil, fmt.Errorf("no PEM block found in %s", path)
+	}
+	pub, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("parse public key: %w", err)
+	}
+	rsaPub, ok := pub.(*rsa.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("key at %s is not an RSA public key", path)
+	}
+	return rsaPub, nil
+}
 
 // Sign issues a use token for userID, valid for expiry. Only the
 // authentication service, which holds the private key, should call this.
