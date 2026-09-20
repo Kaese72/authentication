@@ -12,7 +12,7 @@ import (
 	"github.com/Kaese72/authentication/internal/restwebapp"
 	"github.com/Kaese72/authentication/internal/setupwebapp"
 	"github.com/Kaese72/authentication/internal/userwebapp"
-	"github.com/Kaese72/huemie-lib/middleware"
+	"github.com/Kaese72/authentication/usertoken"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humamux"
 	"github.com/gorilla/mux"
@@ -51,7 +51,7 @@ func main() {
 	userWebapp := userwebapp.NewWebApp(dbPersistence, &privateKey.PublicKey)
 
 	router := mux.NewRouter()
-	router.Use(middleware.UseTokenMiddleware(
+	router.Use(usertoken.Middleware(
 		&privateKey.PublicKey,
 		"/authentication-service/v0/authentication/login",
 		"/authentication-service/v0/setup/",

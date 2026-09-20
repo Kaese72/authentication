@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Kaese72/authentication/usertoken"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/pkg/errors"
 )
@@ -35,13 +36,7 @@ func ParseRSAPrivateKey(pemBytes []byte) (*rsa.PrivateKey, error) {
 }
 
 func generateUseToken(privateKey *rsa.PrivateKey, id int64, expiry time.Duration) (string, error) {
-	claims := jwt.MapClaims{
-		"id":  id,
-		"exp": time.Now().Add(expiry).Unix(),
-		"iat": time.Now().Unix(),
-	}
-	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
-	return token.SignedString(privateKey)
+	return usertoken.Sign(privateKey, id, expiry)
 }
 
 func generateRefreshToken(secret string, id int64, expiry time.Duration) (string, error) {
@@ -63,20 +58,7 @@ func claimsToID(claims jwt.MapClaims) (id int64, err error) {
 }
 
 func ValidateUseToken(publicKey *rsa.PublicKey, tokenString string) (id int64, err error) {
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-		return publicKey, nil
-	})
-	if err != nil {
-		return 0, err
-	}
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok || !token.Valid {
-		return 0, errors.New("invalid token")
-	}
-	return claimsToID(claims)
+	return usertoken.Verify(publicKey, tokenString)
 }
 
 func validateRefreshToken(secret string, tokenString string) (id int64, err error) {

@@ -40,6 +40,28 @@ signature verification. No round trip to *Authentication Service* should
 be necessary. This is expected to be passed in via configuration to each
 service that requires authentication.
 
+##### Go services: the `usertoken` package
+
+This service owns the `use` token format, so it also exports the code that
+signs and verifies it: the public Go package
+`github.com/Kaese72/authentication/usertoken` (part of this module, not a
+separate one). Go services that need to authenticate callers import it
+instead of re-implementing the format:
+
+* `usertoken.Middleware(publicKey, skipPrefixes...)` requires a valid `use`
+  token as a bearer token, answering 401 otherwise. Any token that is not
+  a well-formed `use` token, including one without a valid `id` claim, is
+  rejected.
+* `usertoken.UserID(ctx)` returns the authenticated user's ID (the `id`
+  claim) inside a handler behind that middleware.
+* `usertoken.Verify` / `usertoken.Sign` are the underlying verify and
+  issue functions. Only this service, which holds the private key, should
+  ever call `Sign`.
+
+The package deliberately depends only on the JWT library and `huemie-lib`,
+so importing it does not pull this service's own dependencies (database
+driver, APM, ...) into the importing service.
+
 #### `refresh` token architecture
 
 The `refresh` token is expected to be signed by a symmetric key
