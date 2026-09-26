@@ -112,7 +112,7 @@ func (app webApp) CloudComplete(ctx context.Context, input *struct {
 		logging.ErrorErr(err, ctx)
 		return nil, huma.Error500InternalServerError("failed to provision user")
 	}
-	return app.issueLogin(ctx, user.ID, time.Now())
+	return app.issueLogin(ctx, user.ID, user.Permissions, time.Now())
 }
 
 func isDuplicate(err error) bool {

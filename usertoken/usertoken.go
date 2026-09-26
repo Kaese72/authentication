@@ -55,23 +55,28 @@ func LoadPublicKeyFromFile(path string) (*rsa.PublicKey, error) {
 	return rsaPub, nil
 }
 
-// Sign issues a use token for userID, valid for expiry. Only the
-// authentication service, which holds the private key, should call this.
-func Sign(privateKey *rsa.PrivateKey, userID int64, expiry time.Duration) (string, error) {
+// Sign issues a use token for userID with the given permissions, valid for
+// expiry. Only the authentication service, which holds the private key,
+// should call this.
+func Sign(privateKey *rsa.PrivateKey, userID int64, expiry time.Duration, permissions Permissions) (string, error) {
 	claims := jwt.MapClaims{
 		ClaimID: userID,
 		"exp":   time.Now().Add(expiry).Unix(),
 		"iat":   time.Now().Unix(),
 	}
+	if raw := permissions.toRaw(); len(raw) > 0 {
+		claims[ClaimPermissions] = raw
+	}
 	return jwt.NewWithClaims(jwt.SigningMethodRS256, claims).SignedString(privateKey)
 }
 
 // Verify checks tokenString's RS256 signature and expiry against publicKey
-// and returns the user ID it was issued for. A validly signed token without a
-// usable (positive, numeric) id claim is rejected: every use token the
-// authentication service issues has one, so its absence means the token is
-// not a use token.
-func Verify(publicKey *rsa.PublicKey, tokenString string) (int64, error) {
+// and returns the user ID it was issued for, along with its permissions. A
+// validly signed token without a usable (positive, numeric) id claim is
+// rejected: every use token the authentication service issues has one, so its
+// absence means the token is not a use token. A token with no hp claim, or an
+// unparseable one, carries the zero Permissions (no access).
+func Verify(publicKey *rsa.PublicKey, tokenString string) (int64, Permissions, error) {
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
@@ -79,17 +84,29 @@ func Verify(publicKey *rsa.PublicKey, tokenString string) (int64, error) {
 		return publicKey, nil
 	})
 	if err != nil {
-		return 0, err
+		return 0, Permissions{}, err
 	}
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok || !token.Valid {
-		return 0, errors.New("invalid token")
+		return 0, Permissions{}, errors.New("invalid token")
 	}
 	id, ok := claims[ClaimID].(float64)
 	if !ok || id < 1 {
-		return 0, errors.New("invalid id claim")
+		return 0, Permissions{}, errors.New("invalid id claim")
 	}
-	return int64(id), nil
+	permissions := Permissions{}
+	if raw, ok := claims[ClaimPermissions].(map[string]interface{}); ok {
+		permissions = permissionsFromRaw(raw)
+	}
+	return int64(id), permissions, nil
+}
+
+// authContext is what Middleware places in the request context: the
+// authenticated caller's user ID and permissions, together so both come from
+// the same verified token.
+type authContext struct {
+	userID      int64
+	permissions Permissions
 }
 
 type userIDContextKey struct{}
@@ -98,8 +115,18 @@ type userIDContextKey struct{}
 // context by Middleware. It returns false if the request did not pass through
 // Middleware, or matched one of its skipped prefixes.
 func UserID(ctx context.Context) (int64, bool) {
-	id, ok := ctx.Value(userIDContextKey{}).(int64)
-	return id, ok
+	auth, ok := ctx.Value(userIDContextKey{}).(authContext)
+	return auth.userID, ok
+}
+
+// PermissionsFromContext returns the authenticated caller's permissions, as
+// placed in the request context by Middleware. It returns false if the
+// request did not pass through Middleware, or matched one of its skipped
+// prefixes - callers must treat that the same as "no access", not bypass the
+// check.
+func PermissionsFromContext(ctx context.Context) (Permissions, bool) {
+	auth, ok := ctx.Value(userIDContextKey{}).(authContext)
+	return auth.permissions, ok
 }
 
 // Middleware returns an HTTP middleware that requires a valid use token as a
@@ -123,12 +150,13 @@ func Middleware(publicKey *rsa.PublicKey, skipPrefixes ...string) func(http.Hand
 				liberrors.NewApiError(liberrors.Unauthorized, errors.New("missing bearer token")).WriteHTTP(w)
 				return
 			}
-			userID, err := Verify(publicKey, strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer ")))
+			userID, permissions, err := Verify(publicKey, strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer ")))
 			if err != nil {
 				liberrors.NewApiError(liberrors.Unauthorized, errors.New("invalid or expired token")).WriteHTTP(w)
 				return
 			}
-			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userIDContextKey{}, userID)))
+			auth := authContext{userID: userID, permissions: permissions}
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userIDContextKey{}, auth)))
 		})
 	}
 }

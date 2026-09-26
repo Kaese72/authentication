@@ -39,14 +39,61 @@ func rawToken(t *testing.T, method jwt.SigningMethod, key any, claims jwt.MapCla
 
 func TestSignVerifyRoundTrip(t *testing.T) {
 	key := newKey(t)
-	token, err := Sign(key, 42, time.Minute)
+	token, err := Sign(key, 42, time.Minute, Permissions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	id, err := Verify(&key.PublicKey, token)
+	id, permissions, err := Verify(&key.PublicKey, token)
 	if err != nil || id != 42 {
 		t.Fatalf("Verify = (%d, %v), want (42, nil)", id, err)
 	}
+	if permissions.Admin() || permissions.HasView(ResourceDevices) {
+		t.Fatalf("Verify returned non-empty permissions for a token signed with none: %+v", permissions)
+	}
+}
+
+func TestSignVerifyRoundTripWithPermissions(t *testing.T) {
+	key := newKey(t)
+
+	t.Run("admin", func(t *testing.T) {
+		token, err := Sign(key, 1, time.Minute, AdminPermissions())
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, permissions, err := Verify(&key.PublicKey, token)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !permissions.Admin() || !permissions.HasView(ResourceDevices) || !permissions.HasModify(ResourceAutomationRules) {
+			t.Fatalf("admin permissions did not round-trip: %+v", permissions)
+		}
+	})
+
+	t.Run("resource grants, modify implies view", func(t *testing.T) {
+		token, err := Sign(key, 1, time.Minute, NewPermissions(map[string]ResourceGrant{
+			ResourceDevices:         {View: accessAll},
+			ResourceAutomationRules: {Modify: accessAll},
+		}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, permissions, err := Verify(&key.PublicKey, token)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if permissions.Admin() {
+			t.Fatal("expected non-admin permissions")
+		}
+		if !permissions.HasView(ResourceDevices) || permissions.HasModify(ResourceDevices) {
+			t.Fatalf("devices: HasView/HasModify = (%v, %v), want (true, false)", permissions.HasView(ResourceDevices), permissions.HasModify(ResourceDevices))
+		}
+		if !permissions.HasView(ResourceAutomationRules) || !permissions.HasModify(ResourceAutomationRules) {
+			t.Fatalf("automation rules: HasView/HasModify = (%v, %v), want (true, true)", permissions.HasView(ResourceAutomationRules), permissions.HasModify(ResourceAutomationRules))
+		}
+		if permissions.HasView(ResourceUsers) {
+			t.Fatal("expected no access to a resource with no grant")
+		}
+	})
 }
 
 func TestVerifyRejects(t *testing.T) {
@@ -66,7 +113,7 @@ func TestVerifyRejects(t *testing.T) {
 	}
 	for name, token := range tests {
 		t.Run(name, func(t *testing.T) {
-			if id, err := Verify(&key.PublicKey, token); err == nil {
+			if id, _, err := Verify(&key.PublicKey, token); err == nil {
 				t.Fatalf("Verify accepted it, returned id %d", id)
 			}
 		})
@@ -75,7 +122,7 @@ func TestVerifyRejects(t *testing.T) {
 
 func TestMiddleware(t *testing.T) {
 	key := newKey(t)
-	valid, err := Sign(key, 42, time.Minute)
+	valid, err := Sign(key, 42, time.Minute, AdminPermissions())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,11 +196,11 @@ func TestLoadPublicKeyFromFile(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		token, err := Sign(key, 7, time.Minute)
+		token, err := Sign(key, 7, time.Minute, Permissions{})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if id, err := Verify(pub, token); err != nil || id != 7 {
+		if id, _, err := Verify(pub, token); err != nil || id != 7 {
 			t.Fatalf("Verify with loaded key = (%d, %v), want (7, nil)", id, err)
 		}
 	})

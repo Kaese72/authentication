@@ -79,10 +79,14 @@ func main() {
 	huma.Get(api, "/authentication-service/v0/setup/status", setupWebapp.SetupStatus)
 	huma.Post(api, "/authentication-service/v0/setup/user", setupWebapp.SetupUser)
 
+	huma.Get(api, "/authentication-service/v0/permissions/resources", userWebapp.ListResources)
+
 	huma.Get(api, "/authentication-service/v0/users", userWebapp.ListUsers)
 	huma.Post(api, "/authentication-service/v0/users", userWebapp.CreateUser)
 	huma.Get(api, "/authentication-service/v0/users/{id}", userWebapp.GetUser)
 	huma.Put(api, "/authentication-service/v0/users/{id}", userWebapp.UpdateUser)
+	huma.Put(api, "/authentication-service/v0/users/{id}/permissions/{resource}", userWebapp.UpdateUserPermissions)
+	huma.Put(api, "/authentication-service/v0/users/{id}/admin", userWebapp.SetUserAdmin)
 	huma.Delete(api, "/authentication-service/v0/users/{id}", userWebapp.DeleteUser)
 	huma.Put(api, "/authentication-service/v0/users/me/update-password", userWebapp.UpdateMyPassword)
 

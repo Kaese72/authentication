@@ -12,6 +12,7 @@ import (
 	"github.com/Kaese72/authentication/internal/logging"
 	"github.com/Kaese72/authentication/internal/persistence"
 	"github.com/Kaese72/authentication/restmodels"
+	"github.com/Kaese72/authentication/usertoken"
 	"github.com/danielgtaylor/huma/v2"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -75,8 +76,8 @@ type loginResult struct {
 // issueLogin issues a use/refresh token pair for the user. cloudVerifiedAt is
 // when their cloud access was last confirmed (zero for non-cloud users) and is
 // carried in the refresh token so the next refresh knows how stale it is.
-func (app webApp) issueLogin(ctx context.Context, id int64, cloudVerifiedAt time.Time) (*loginResult, error) {
-	useToken, err := generateUseToken(app.privateKey, id, app.useTokenExpiry)
+func (app webApp) issueLogin(ctx context.Context, id int64, permissions usertoken.Permissions, cloudVerifiedAt time.Time) (*loginResult, error) {
+	useToken, err := generateUseToken(app.privateKey, id, app.useTokenExpiry, permissions)
 	if err != nil {
 		logging.ErrorErr(err, ctx)
 		return nil, huma.Error500InternalServerError("token generation failed")
@@ -136,7 +137,7 @@ func (app webApp) Login(ctx context.Context, input *struct {
 						return nil, err
 					}
 				}
-				return app.issueLogin(ctx, user.ID, cloudVerifiedAt)
+				return app.issueLogin(ctx, user.ID, user.Permissions, cloudVerifiedAt)
 			}
 			if err != sql.ErrNoRows {
 				logging.ErrorErr(err, ctx)
@@ -170,5 +171,5 @@ func (app webApp) Login(ctx context.Context, input *struct {
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
 		return nil, huma.Error401Unauthorized("invalid credentials")
 	}
-	return app.issueLogin(ctx, user.ID, time.Time{})
+	return app.issueLogin(ctx, user.ID, user.Permissions, time.Time{})
 }

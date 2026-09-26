@@ -35,8 +35,8 @@ func ParseRSAPrivateKey(pemBytes []byte) (*rsa.PrivateKey, error) {
 	}
 }
 
-func generateUseToken(privateKey *rsa.PrivateKey, id int64, expiry time.Duration) (string, error) {
-	return usertoken.Sign(privateKey, id, expiry)
+func generateUseToken(privateKey *rsa.PrivateKey, id int64, expiry time.Duration, permissions usertoken.Permissions) (string, error) {
+	return usertoken.Sign(privateKey, id, expiry, permissions)
 }
 
 // claimCloudVerified is the refresh-token claim holding the unix time the
@@ -65,7 +65,7 @@ func claimsToID(claims jwt.MapClaims) (id int64, err error) {
 	return int64(idFloat), nil
 }
 
-func ValidateUseToken(publicKey *rsa.PublicKey, tokenString string) (id int64, err error) {
+func ValidateUseToken(publicKey *rsa.PublicKey, tokenString string) (id int64, permissions usertoken.Permissions, err error) {
 	return usertoken.Verify(publicKey, tokenString)
 }
 

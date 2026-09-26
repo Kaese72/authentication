@@ -6,6 +6,7 @@ import (
 	"github.com/Kaese72/authentication/internal/logging"
 	"github.com/Kaese72/authentication/internal/persistence"
 	"github.com/Kaese72/authentication/restmodels"
+	"github.com/Kaese72/authentication/usertoken"
 	"github.com/danielgtaylor/huma/v2"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -49,7 +50,10 @@ func (app webApp) SetupUser(ctx context.Context, input *struct {
 		return nil, huma.Error500InternalServerError("failed to hash password")
 	}
 
-	if err := app.persistence.CreateUser(ctx, input.Body.Username, string(hash), input.Body.Name, input.Body.Surname, input.Body.Email); err != nil {
+	// The appliance's first user is made admin: there is otherwise no way for
+	// anyone to become admin, since granting permissions itself requires
+	// admin.
+	if err := app.persistence.CreateUser(ctx, input.Body.Username, string(hash), input.Body.Name, input.Body.Surname, input.Body.Email, usertoken.AdminPermissions()); err != nil {
 		logging.ErrorErr(err, ctx)
 		return nil, huma.Error500InternalServerError("failed to create user")
 	}
