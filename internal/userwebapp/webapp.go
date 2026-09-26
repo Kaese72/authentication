@@ -109,6 +109,8 @@ func toUserResponse(u persistence.User) restmodels.UserResponse {
 		Name:        u.Name,
 		Surname:     u.Surname,
 		Email:       u.Email,
+		LocalLogin:  u.PasswordHash != "",
+		CloudLogin:  u.CloudUserID != nil,
 		Permissions: toPermissionsResponse(u.Permissions),
 	}
 }

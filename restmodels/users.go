@@ -40,11 +40,19 @@ type SetAdminRequest struct {
 }
 
 type UserResponse struct {
-	ID          int64               `json:"id"`
-	Username    string              `json:"username"`
-	Name        string              `json:"name"`
-	Surname     string              `json:"surname"`
-	Email       *string             `json:"email,omitempty"`
+	ID       int64   `json:"id"`
+	Username string  `json:"username"`
+	Name     string  `json:"name"`
+	Surname  string  `json:"surname"`
+	Email    *string `json:"email,omitempty"`
+	// LocalLogin is true if the user has a local password and so can log in
+	// with username/password. LocalLogin and CloudLogin are not exclusive - a
+	// user can have both, e.g. a cloud user who was also given a local
+	// password.
+	LocalLogin bool `json:"localLogin"`
+	// CloudLogin is true if the user is linked to a Humi Cloud account and so
+	// can log in through the cloud.
+	CloudLogin  bool                `json:"cloudLogin"`
 	Permissions PermissionsResponse `json:"permissions"`
 }
 

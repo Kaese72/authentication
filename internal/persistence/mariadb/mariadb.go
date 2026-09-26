@@ -328,7 +328,7 @@ func (m mariadbPersistence) ListUsers(ctx context.Context, pagination restmodels
 	if err != nil {
 		return nil, 0, err
 	}
-	query := "SELECT id, username, name, surname, email, isAdmin FROM users ORDER BY username"
+	query := "SELECT id, username, name, surname, email, COALESCE(passwordHash, ''), cloudUserId, isAdmin FROM users ORDER BY username"
 	limitClause, limitArgs := paginationClause(pagination)
 	query += limitClause
 	rows, err := m.db.QueryContext(ctx, query, limitArgs...)
@@ -339,10 +339,14 @@ func (m mariadbPersistence) ListUsers(ctx context.Context, pagination restmodels
 	var nonAdminIDs []int64
 	for rows.Next() {
 		var user persistence.User
+		var cloudUserID sql.NullInt64
 		var isAdmin bool
-		if err := rows.Scan(&user.ID, &user.Username, &user.Name, &user.Surname, &user.Email, &isAdmin); err != nil {
+		if err := rows.Scan(&user.ID, &user.Username, &user.Name, &user.Surname, &user.Email, &user.PasswordHash, &cloudUserID, &isAdmin); err != nil {
 			rows.Close()
 			return nil, 0, err
+		}
+		if cloudUserID.Valid {
+			user.CloudUserID = &cloudUserID.Int64
 		}
 		if isAdmin {
 			user.Permissions = usertoken.AdminPermissions()
