@@ -53,7 +53,7 @@ func main() {
 
 	webapp := restwebapp.NewWebApp(dbPersistence, privateKey, config.Loaded.Auth.RefreshSecret, useTokenExpiry, refreshTokenExpiry, cloud, cloudStateExpiry, cloudAccessGrace)
 	setupWebapp := setupwebapp.NewWebApp(dbPersistence)
-	userWebapp := userwebapp.NewWebApp(dbPersistence, &privateKey.PublicKey)
+	userWebapp := userwebapp.NewWebApp(dbPersistence, &privateKey.PublicKey, cloud, cloudStateExpiry)
 
 	router := mux.NewRouter()
 	router.Use(usertoken.Middleware(
@@ -87,6 +87,8 @@ func main() {
 	huma.Put(api, "/authentication-service/v0/users/{id}", userWebapp.UpdateUser)
 	huma.Put(api, "/authentication-service/v0/users/{id}/permissions/{resource}", userWebapp.UpdateUserPermissions)
 	huma.Put(api, "/authentication-service/v0/users/{id}/admin", userWebapp.SetUserAdmin)
+	huma.Post(api, "/authentication-service/v0/users/{id}/cloud/link/start", userWebapp.LinkCloudStart)
+	huma.Post(api, "/authentication-service/v0/users/{id}/cloud/link/complete", userWebapp.LinkCloudComplete)
 	huma.Delete(api, "/authentication-service/v0/users/{id}", userWebapp.DeleteUser)
 	huma.Put(api, "/authentication-service/v0/users/me/update-password", userWebapp.UpdateMyPassword)
 

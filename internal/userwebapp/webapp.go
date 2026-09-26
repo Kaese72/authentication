@@ -2,10 +2,16 @@ package userwebapp
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/rsa"
 	"database/sql"
+	"encoding/hex"
+	"errors"
+	"net/url"
 	"strings"
+	"time"
 
+	"github.com/Kaese72/authentication/internal/cloudclient"
 	"github.com/Kaese72/authentication/internal/logging"
 	"github.com/Kaese72/authentication/internal/persistence"
 	"github.com/Kaese72/authentication/internal/restwebapp"
@@ -116,12 +122,14 @@ func toUserResponse(u persistence.User) restmodels.UserResponse {
 }
 
 type webApp struct {
-	persistence persistence.UserManagementPersistenceDB
-	publicKey   *rsa.PublicKey
+	persistence      persistence.UserManagementPersistenceDB
+	publicKey        *rsa.PublicKey
+	cloud            cloudclient.Client
+	cloudStateExpiry time.Duration
 }
 
-func NewWebApp(p persistence.UserManagementPersistenceDB, publicKey *rsa.PublicKey) webApp {
-	return webApp{persistence: p, publicKey: publicKey}
+func NewWebApp(p persistence.UserManagementPersistenceDB, publicKey *rsa.PublicKey, cloud cloudclient.Client, cloudStateExpiry time.Duration) webApp {
+	return webApp{persistence: p, publicKey: publicKey, cloud: cloud, cloudStateExpiry: cloudStateExpiry}
 }
 
 func (app webApp) ListUsers(ctx context.Context, input *struct {
@@ -271,6 +279,114 @@ func (app webApp) SetUserAdmin(ctx context.Context, input *struct {
 		}
 		logging.ErrorErr(err, ctx)
 		return nil, huma.Error500InternalServerError("failed to update admin status")
+	}
+	user, err := app.persistence.GetUserByID(ctx, input.ID)
+	if err != nil {
+		logging.ErrorErr(err, ctx)
+		return nil, huma.Error500InternalServerError("failed to retrieve updated user")
+	}
+	return &struct{ Body restmodels.UserResponse }{Body: toUserResponse(user)}, nil
+}
+
+func generateCloudState() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf), nil
+}
+
+// cloudError maps a cloudclient error to the huma error to return. Mirrors
+// restwebapp's own cloudError - kept separate rather than shared, since
+// sharing it would mean one of these packages importing the other just for
+// this.
+func cloudError(ctx context.Context, err error) error {
+	switch {
+	case errors.Is(err, cloudclient.ErrNotConfigured):
+		return huma.Error404NotFound("cloud login is not available")
+	case errors.Is(err, cloudclient.ErrNotEnrolled):
+		return huma.Error409Conflict("appliance is not enrolled with the cloud")
+	case errors.Is(err, cloudclient.ErrRefused):
+		return huma.Error401Unauthorized("cloud login refused")
+	default:
+		logging.ErrorErr(err, ctx)
+		return huma.Error502BadGateway("failed to reach the cloud")
+	}
+}
+
+// LinkCloudStart begins linking id to a cloud account: it remembers a fresh
+// one-time state scoped to id and returns the cloud URL the browser should be
+// sent to. The cloud authenticates the user and sends the browser back to
+// returnTo with a login code and the state; LinkCloudComplete finishes it.
+func (app webApp) LinkCloudStart(ctx context.Context, input *struct {
+	ID   int64 `path:"id"`
+	Body restmodels.CloudLoginStartRequest
+}) (*struct {
+	Body restmodels.CloudLoginStartResponse
+}, error) {
+	if err := requireUsersModify(ctx); err != nil {
+		return nil, err
+	}
+	returnTo, err := url.Parse(input.Body.ReturnTo)
+	if err != nil || (returnTo.Scheme != "http" && returnTo.Scheme != "https") || returnTo.Host == "" {
+		return nil, huma.Error400BadRequest("returnTo must be an absolute http(s) URL")
+	}
+	state, err := generateCloudState()
+	if err != nil {
+		logging.ErrorErr(err, ctx)
+		return nil, huma.Error500InternalServerError("failed to generate login state")
+	}
+	cloudURL, err := app.cloud.Start(ctx, state, input.Body.ReturnTo)
+	if err != nil {
+		return nil, cloudError(ctx, err)
+	}
+	if err := app.persistence.SaveCloudLinkState(ctx, state, time.Now().Add(app.cloudStateExpiry), input.ID); err != nil {
+		logging.ErrorErr(err, ctx)
+		return nil, huma.Error500InternalServerError("failed to save login state")
+	}
+	return &struct {
+		Body restmodels.CloudLoginStartResponse
+	}{Body: restmodels.CloudLoginStartResponse{State: state, CloudURL: cloudURL}}, nil
+}
+
+// LinkCloudComplete finishes linking id to a cloud account: it consumes the
+// link state (which must have been created for this same id), redeems the
+// login code with the cloud to learn who logged in, and links id to that
+// cloud user. It fails with a conflict if another user is already linked to
+// that cloud account.
+func (app webApp) LinkCloudComplete(ctx context.Context, input *struct {
+	ID   int64 `path:"id"`
+	Body restmodels.CloudLoginCompleteRequest
+}) (*struct {
+	Body restmodels.UserResponse
+}, error) {
+	if err := requireUsersModify(ctx); err != nil {
+		return nil, err
+	}
+	stateUserID, ok, err := app.persistence.ConsumeCloudLinkState(ctx, input.Body.State)
+	if err != nil {
+		logging.ErrorErr(err, ctx)
+		return nil, huma.Error500InternalServerError("failed to verify login state")
+	}
+	if !ok {
+		return nil, huma.Error401Unauthorized("invalid or expired login state")
+	}
+	if stateUserID != input.ID {
+		return nil, huma.Error400BadRequest("login state does not match this user")
+	}
+	cloudUser, err := app.cloud.Redeem(ctx, input.Body.Code)
+	if err != nil {
+		return nil, cloudError(ctx, err)
+	}
+	if err := app.persistence.LinkCloudUser(ctx, input.ID, cloudUser.ID); err != nil {
+		if mysqlErr, ok := err.(*mysql.MySQLError); ok && mysqlErr.Number == 1062 {
+			return nil, huma.Error409Conflict("this cloud account is already linked to another user")
+		}
+		if err == sql.ErrNoRows {
+			return nil, huma.Error404NotFound("user not found")
+		}
+		logging.ErrorErr(err, ctx)
+		return nil, huma.Error500InternalServerError("failed to link cloud account")
 	}
 	user, err := app.persistence.GetUserByID(ctx, input.ID)
 	if err != nil {

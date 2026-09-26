@@ -136,16 +136,24 @@ func (m mariadbPersistence) CreateCloudUser(ctx context.Context, cloudUserID int
 	return err
 }
 
+func (m mariadbPersistence) pruneExpiredCloudStates(ctx context.Context) error {
+	_, err := m.db.ExecContext(ctx, "DELETE FROM cloudLoginStates WHERE expiresAt < ?", time.Now().UTC())
+	return err
+}
+
 func (m mariadbPersistence) SaveCloudLoginState(ctx context.Context, state string, expiresAt time.Time) error {
-	if _, err := m.db.ExecContext(ctx, "DELETE FROM cloudLoginStates WHERE expiresAt < ?", time.Now().UTC()); err != nil {
+	if err := m.pruneExpiredCloudStates(ctx); err != nil {
 		return err
 	}
 	_, err := m.db.ExecContext(ctx, "INSERT INTO cloudLoginStates (state, expiresAt) VALUES (?, ?)", state, expiresAt.UTC())
 	return err
 }
 
+// ConsumeCloudLoginState only matches a plain login state (userId IS NULL),
+// never a link state - completing an ordinary login must not be usable to
+// finish a pending "link this user to a cloud account" request instead.
 func (m mariadbPersistence) ConsumeCloudLoginState(ctx context.Context, state string) (bool, error) {
-	result, err := m.db.ExecContext(ctx, "DELETE FROM cloudLoginStates WHERE state = ? AND expiresAt > ?", state, time.Now().UTC())
+	result, err := m.db.ExecContext(ctx, "DELETE FROM cloudLoginStates WHERE state = ? AND userId IS NULL AND expiresAt > ?", state, time.Now().UTC())
 	if err != nil {
 		return false, err
 	}
@@ -154,6 +162,63 @@ func (m mariadbPersistence) ConsumeCloudLoginState(ctx context.Context, state st
 		return false, err
 	}
 	return n == 1, nil
+}
+
+func (m mariadbPersistence) SaveCloudLinkState(ctx context.Context, state string, expiresAt time.Time, id int64) error {
+	if err := m.pruneExpiredCloudStates(ctx); err != nil {
+		return err
+	}
+	_, err := m.db.ExecContext(ctx, "INSERT INTO cloudLoginStates (state, expiresAt, userId) VALUES (?, ?, ?)", state, expiresAt.UTC(), id)
+	return err
+}
+
+// ConsumeCloudLinkState is ConsumeCloudLoginState's counterpart for link
+// states (userId IS NOT NULL): it needs to hand back which user the state was
+// for, so a plain DELETE...RowsAffected isn't enough - the id must be read
+// before it is deleted.
+func (m mariadbPersistence) ConsumeCloudLinkState(ctx context.Context, state string) (int64, bool, error) {
+	tx, err := m.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, false, err
+	}
+	defer tx.Rollback()
+	var id int64
+	err = tx.QueryRowContext(ctx, "SELECT userId FROM cloudLoginStates WHERE state = ? AND userId IS NOT NULL AND expiresAt > ?", state, time.Now().UTC()).Scan(&id)
+	if err == sql.ErrNoRows {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM cloudLoginStates WHERE state = ?", state); err != nil {
+		return 0, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, false, err
+	}
+	return id, true, nil
+}
+
+// LinkCloudUser is not wrapped in the same userExists check the other
+// UserManagementPersistenceDB writes use: a duplicate-key error on
+// cloudUserId (another user already linked to that cloud account) and "no
+// such user" both surface as RowsAffected == 0 here, but the webapp layer
+// distinguishes them by checking for the MySQL duplicate-key error first
+// (see userwebapp's use of go-sql-driver/mysql), so ambiguity is not a
+// problem for id not existing.
+func (m mariadbPersistence) LinkCloudUser(ctx context.Context, id int64, cloudUserID int64) error {
+	result, err := m.db.ExecContext(ctx, "UPDATE users SET cloudUserId = ? WHERE id = ?", cloudUserID, id)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (m mariadbPersistence) UserExists(ctx context.Context) (bool, error) {

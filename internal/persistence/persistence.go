@@ -68,4 +68,19 @@ type UserManagementPersistenceDB interface {
 	SetAdmin(ctx context.Context, id int64, admin bool) error
 	DeleteUser(ctx context.Context, id int64) error
 	UpdatePassword(ctx context.Context, username string, passwordHash string) error
+
+	// SaveCloudLinkState remembers a one-time state for linking id to
+	// whichever cloud account the browser completes login as, until
+	// expiresAt. Expired states of either kind (login or link) are pruned as
+	// a side effect.
+	SaveCloudLinkState(ctx context.Context, state string, expiresAt time.Time, id int64) error
+	// ConsumeCloudLinkState deletes a link state and reports the user id it
+	// was saved for, so a state can be used at most once. ok is false if no
+	// matching, unexpired link state exists.
+	ConsumeCloudLinkState(ctx context.Context, state string) (id int64, ok bool, err error)
+	// LinkCloudUser links id to a cloud user id, so they can also log in
+	// through the cloud alongside any existing local password. Returns a
+	// duplicate-key error (see go-sql-driver/mysql's MySQLError, number 1062)
+	// if another user is already linked to that cloud user id.
+	LinkCloudUser(ctx context.Context, id int64, cloudUserID int64) error
 }
