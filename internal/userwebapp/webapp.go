@@ -314,6 +314,20 @@ func cloudError(ctx context.Context, err error) error {
 	}
 }
 
+// requireSelf reports whether ctx's caller (as placed there by
+// usertoken.Middleware) is the same user as targetID. Linking a cloud account
+// proves who completes the browser flow, not who asked for it to start, so
+// only the user being linked may initiate or finish it - modify access to
+// users (which would otherwise let an admin manage this like any other user
+// field) is deliberately not enough here.
+func requireSelf(ctx context.Context, targetID int64) error {
+	callerID, ok := usertoken.UserID(ctx)
+	if !ok || callerID != targetID {
+		return huma.Error403Forbidden("only the user themselves may link a cloud account")
+	}
+	return nil
+}
+
 // LinkCloudStart begins linking id to a cloud account: it remembers a fresh
 // one-time state scoped to id and returns the cloud URL the browser should be
 // sent to. The cloud authenticates the user and sends the browser back to
@@ -324,7 +338,7 @@ func (app webApp) LinkCloudStart(ctx context.Context, input *struct {
 }) (*struct {
 	Body restmodels.CloudLoginStartResponse
 }, error) {
-	if err := requireUsersModify(ctx); err != nil {
+	if err := requireSelf(ctx, input.ID); err != nil {
 		return nil, err
 	}
 	returnTo, err := url.Parse(input.Body.ReturnTo)
@@ -360,7 +374,7 @@ func (app webApp) LinkCloudComplete(ctx context.Context, input *struct {
 }) (*struct {
 	Body restmodels.UserResponse
 }, error) {
-	if err := requireUsersModify(ctx); err != nil {
+	if err := requireSelf(ctx, input.ID); err != nil {
 		return nil, err
 	}
 	stateUserID, ok, err := app.persistence.ConsumeCloudLinkState(ctx, input.Body.State)
