@@ -28,6 +28,7 @@ const (
 	ResourceAutomationRules = "ar" // ittt-orchestrator: automation rules
 	ResourceUsers           = "us" // authentication: user accounts and their permissions
 	ResourceCloudConnect    = "cc" // cloud-connect: cloud connectivity
+	ResourceAdapters        = "aa" // adapter-attendant: adapter lifecycle and configuration
 )
 
 // ResourceDefinition describes one resource code for display purposes: its
@@ -49,6 +50,7 @@ var Resources = []ResourceDefinition{
 	{Code: ResourceAutomationRules, Name: "Automation Rules"},
 	{Code: ResourceUsers, Name: "Users"},
 	{Code: ResourceCloudConnect, Name: "Cloud Connect"},
+	{Code: ResourceAdapters, Name: "Adapters"},
 }
 
 // KnownResources lists every resource code currently defined, in the same
