@@ -129,6 +129,16 @@ func PermissionsFromContext(ctx context.Context) (Permissions, bool) {
 	return auth.permissions, ok
 }
 
+// ContextWithAuth returns a copy of ctx carrying userID and permissions
+// exactly as Middleware would have placed them, for consuming services' unit
+// tests that call a handler directly (bypassing HTTP and Middleware) and need
+// UserID / PermissionsFromContext to report as if a valid token had been
+// presented. Not for production request handling - that path only ever goes
+// through Middleware.
+func ContextWithAuth(ctx context.Context, userID int64, permissions Permissions) context.Context {
+	return context.WithValue(ctx, userIDContextKey{}, authContext{userID: userID, permissions: permissions})
+}
+
 // Middleware returns an HTTP middleware that requires a valid use token as a
 // bearer token and makes the caller's user ID available through UserID.
 // Requests whose path starts with any entry in skipPrefixes bypass
