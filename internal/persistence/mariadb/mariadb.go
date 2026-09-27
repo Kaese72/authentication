@@ -10,10 +10,32 @@ import (
 	"github.com/Kaese72/authentication/internal/config"
 	"github.com/Kaese72/authentication/internal/logging"
 	"github.com/Kaese72/authentication/internal/persistence"
-	"github.com/Kaese72/authentication/restmodels"
 	"github.com/Kaese72/authentication/usertoken"
+	// aliased: ListUsers (below) builds its SQL as a local "query" variable,
+	// which would otherwise shadow the package.
+	libquery "github.com/Kaese72/huemie-lib/query"
 	"go.elastic.co/apm/module/apmsql"
 )
+
+// userFilters defines what filters are available for the users model.
+var userFilters = map[string]libquery.FieldSpec{
+	"username": libquery.Merge(libquery.TextOperators("username")),
+	"name":     libquery.Merge(libquery.TextOperators("name")),
+	"surname":  libquery.Merge(libquery.TextOperators("surname")),
+	"email":    libquery.Merge(libquery.TextOperators("email")),
+	"isAdmin":  libquery.Merge(libquery.BoolOperator("isAdmin")),
+}
+
+// userSortFields are the fields "sort" may reference for ListUsers.
+// createdAt isn't currently selected into persistence.User, but SQL permits
+// ordering by a column that isn't in the SELECT list.
+var userSortFields = map[string]string{
+	"id":        "id",
+	"username":  "username",
+	"name":      "name",
+	"surname":   "surname",
+	"createdAt": "createdAt",
+}
 
 var _ persistence.UserManagementPersistenceDB = mariadbPersistence{}
 
@@ -366,7 +388,7 @@ func (m mariadbPersistence) UpdateUser(ctx context.Context, id int64, name strin
 // paginationClause returns the SQL "LIMIT ? OFFSET ?" fragment and its arguments
 // for the given pagination. A zero Limit means unbounded, in which case no
 // clause is applied.
-func paginationClause(pagination restmodels.Pagination) (string, []any) {
+func paginationClause(pagination libquery.Pagination) (string, []any) {
 	if pagination.Limit <= 0 {
 		return "", nil
 	}
@@ -377,26 +399,43 @@ func paginationClause(pagination restmodels.Pagination) (string, []any) {
 	return " LIMIT ? OFFSET ?", []any{pagination.Limit, offset}
 }
 
-// countRows executes "SELECT COUNT(*) FROM <table>" and returns the total
-// number of rows, ignoring pagination.
-func countRows(ctx context.Context, db *sql.DB, table string) (int, error) {
+// countRows executes "SELECT COUNT(*) FROM <table> [WHERE <whereClause>]" and
+// returns the total number of matching rows, ignoring pagination.
+func countRows(ctx context.Context, db *sql.DB, table string, whereClause string, args []any) (int, error) {
+	q := `SELECT COUNT(*) FROM ` + table
+	if whereClause != "" {
+		q += " WHERE " + whereClause
+	}
 	var total int
-	row := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table)
+	row := db.QueryRowContext(ctx, q, args...)
 	if err := row.Scan(&total); err != nil {
 		return 0, err
 	}
 	return total, nil
 }
 
-func (m mariadbPersistence) ListUsers(ctx context.Context, pagination restmodels.Pagination) ([]persistence.User, int, error) {
-	total, err := countRows(ctx, m.db, "users")
+func (m mariadbPersistence) ListUsers(ctx context.Context, filters []libquery.Filter, sorts []libquery.Sort, pagination libquery.Pagination) ([]persistence.User, int, error) {
+	fragments, args, err := libquery.Translate(filters, userFilters)
 	if err != nil {
 		return nil, 0, err
 	}
-	query := "SELECT id, username, name, surname, email, COALESCE(passwordHash, ''), cloudUserId, isAdmin FROM users ORDER BY username"
+	whereClause := strings.Join(fragments, " AND ")
+	total, err := countRows(ctx, m.db, "users", whereClause, args)
+	if err != nil {
+		return nil, 0, err
+	}
+	orderBy, err := libquery.BuildOrderBy(sorts, userSortFields, "username")
+	if err != nil {
+		return nil, 0, err
+	}
+	query := "SELECT id, username, name, surname, email, COALESCE(passwordHash, ''), cloudUserId, isAdmin FROM users"
+	if whereClause != "" {
+		query += " WHERE " + whereClause
+	}
+	query += " ORDER BY " + orderBy
 	limitClause, limitArgs := paginationClause(pagination)
 	query += limitClause
-	rows, err := m.db.QueryContext(ctx, query, limitArgs...)
+	rows, err := m.db.QueryContext(ctx, query, append(append([]any{}, args...), limitArgs...)...)
 	if err != nil {
 		return nil, 0, err
 	}

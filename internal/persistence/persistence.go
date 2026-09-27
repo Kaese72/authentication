@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/Kaese72/authentication/restmodels"
 	"github.com/Kaese72/authentication/usertoken"
+	"github.com/Kaese72/huemie-lib/query"
 )
 
 type User struct {
@@ -49,9 +49,10 @@ type SetupPersistenceDB interface {
 }
 
 type UserManagementPersistenceDB interface {
-	// ListUsers returns the page of users, along with the total number of
-	// users (ignoring pagination).
-	ListUsers(ctx context.Context, pagination restmodels.Pagination) ([]User, int, error)
+	// ListUsers returns the page of users matching filters and ordered by
+	// sorts (or the implementation's default order if sorts is empty), along
+	// with the total number of users matching filters (ignoring pagination).
+	ListUsers(ctx context.Context, filters []query.Filter, sorts []query.Sort, pagination query.Pagination) ([]User, int, error)
 	GetUserByID(ctx context.Context, id int64) (User, error)
 	GetUserByUsername(ctx context.Context, username string) (User, error)
 	// CreateUser creates a new user with the given permissions.

@@ -3,8 +3,9 @@ module github.com/Kaese72/authentication
 go 1.25.0
 
 require (
-	github.com/Kaese72/huemie-lib v0.0.6
+	github.com/Kaese72/huemie-lib v0.0.7
 	github.com/danielgtaylor/huma/v2 v2.34.1
+	github.com/go-sql-driver/mysql v1.5.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/gorilla/mux v1.8.1
 	github.com/pkg/errors v0.9.1
@@ -20,7 +21,6 @@ require (
 	github.com/elastic/go-sysinfo v1.7.1 // indirect
 	github.com/elastic/go-windows v1.0.0 // indirect
 	github.com/fsnotify/fsnotify v1.6.0 // indirect
-	github.com/go-sql-driver/mysql v1.5.0 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/jcchavezs/porto v0.1.0 // indirect
 	github.com/joeshaw/multierror v0.0.0-20140124173710-69b34d4ec901 // indirect

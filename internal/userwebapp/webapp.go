@@ -17,6 +17,7 @@ import (
 	"github.com/Kaese72/authentication/internal/restwebapp"
 	"github.com/Kaese72/authentication/restmodels"
 	"github.com/Kaese72/authentication/usertoken"
+	"github.com/Kaese72/huemie-lib/query"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/go-sql-driver/mysql"
 	"golang.org/x/crypto/bcrypt"
@@ -133,16 +134,25 @@ func NewWebApp(p persistence.UserManagementPersistenceDB, publicKey *rsa.PublicK
 }
 
 func (app webApp) ListUsers(ctx context.Context, input *struct {
-	Offset int `query:"offset" default:"0" minimum:"0" doc:"number of matching users to skip"`
-	Limit  int `query:"limit" default:"50" minimum:"1" maximum:"200" doc:"maximum number of users to return"`
+	Filters string `query:"filters" doc:"a string JSON array of objects containing field, operator, and value for filtering"`
+	Sort    string `query:"sort" doc:"a string JSON array of objects containing field and direction ('asc' or 'desc') for sorting"`
+	query.Pagination
 }) (*struct {
-	TotalCount int `header:"X-Total-Count" doc:"total number of users, ignoring pagination"`
-	Body       []restmodels.UserResponse
+	query.TotalCount
+	Body []restmodels.UserResponse
 }, error) {
 	if err := requireUsersView(ctx); err != nil {
 		return nil, err
 	}
-	users, total, err := app.persistence.ListUsers(ctx, restmodels.Pagination{Offset: input.Offset, Limit: input.Limit})
+	filters, err := query.ParseFilters(input.Filters)
+	if err != nil {
+		return nil, err
+	}
+	sorts, err := query.ParseSort(input.Sort)
+	if err != nil {
+		return nil, err
+	}
+	users, total, err := app.persistence.ListUsers(ctx, filters, sorts, query.Pagination{Offset: input.Offset, Limit: input.Limit})
 	if err != nil {
 		logging.ErrorErr(err, ctx)
 		return nil, huma.Error500InternalServerError("failed to list users")
@@ -152,9 +162,9 @@ func (app webApp) ListUsers(ctx context.Context, input *struct {
 		resp[i] = toUserResponse(u)
 	}
 	return &struct {
-		TotalCount int `header:"X-Total-Count" doc:"total number of users, ignoring pagination"`
-		Body       []restmodels.UserResponse
-	}{TotalCount: total, Body: resp}, nil
+		query.TotalCount
+		Body []restmodels.UserResponse
+	}{TotalCount: query.TotalCount{TotalCount: total}, Body: resp}, nil
 }
 
 func (app webApp) GetUser(ctx context.Context, input *struct {
