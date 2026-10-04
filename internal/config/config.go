@@ -69,10 +69,56 @@ func (conf CloudConfig) Validate() error {
 	return nil
 }
 
+// InternalConfig configures the internal listener used only by other
+// services acting as a trusted Kubernetes ServiceAccount (e.g. the chatbot
+// minting an impersonation token) -- never by an ordinary human use token.
+// See huemie-lib/k8sauth.RequireServiceAccount, which this listener's
+// middleware is built from.
+type InternalConfig struct {
+	// ListenAddr is the internal listener's bind address, separate from the
+	// public API's.
+	ListenAddr string `json:"listen-addr" mapstructure:"listen-addr"`
+	// TokenAudience is the audience a caller's ServiceAccount token must have
+	// been issued for.
+	TokenAudience string `json:"token-audience" mapstructure:"token-audience"`
+	// ImpersonationTokenExpirySeconds bounds the lifetime of a token minted
+	// by POST .../internal/impersonate/{id}. Short, since a caller fetches
+	// one fresh immediately before using it and never holds it.
+	ImpersonationTokenExpirySeconds int `json:"impersonation-token-expiry-seconds" mapstructure:"impersonation-token-expiry-seconds"`
+}
+
+func (conf InternalConfig) Validate() error {
+	if conf.ListenAddr == "" {
+		return errors.New("must supply internal listen-addr")
+	}
+	if conf.TokenAudience == "" {
+		return errors.New("must supply internal token-audience")
+	}
+	return nil
+}
+
+// DebugConfig holds settings that exist only to make local development
+// possible and must never be set in a real deployment -- kept under its own
+// `debug.*` path specifically so that is obvious. None of it is validated as
+// required; every field's zero value means "use the real, production
+// behavior".
+type DebugConfig struct {
+	// Namespace overrides huemie-lib/k8sauth.CurrentNamespace() for the
+	// internal listener's ServiceAccount check. Only needed when running
+	// outside a pod (so there is no real
+	// /var/run/secrets/kubernetes.io/serviceaccount/namespace file to read)
+	// -- e.g. a local dev cluster where this process runs on the host
+	// rather than in-cluster. Left empty, the real namespace is read as
+	// normal.
+	Namespace string `json:"namespace" mapstructure:"namespace"`
+}
+
 type Config struct {
 	Database DatabaseConfig `json:"database" mapstructure:"database"`
 	Auth     AuthConfig     `json:"auth" mapstructure:"auth"`
 	Cloud    CloudConfig    `json:"cloud" mapstructure:"cloud"`
+	Internal InternalConfig `json:"internal" mapstructure:"internal"`
+	Debug    DebugConfig    `json:"debug" mapstructure:"debug"`
 }
 
 func (conf Config) Validate() error {
@@ -83,6 +129,9 @@ func (conf Config) Validate() error {
 		return err
 	}
 	if err := conf.Cloud.Validate(); err != nil {
+		return err
+	}
+	if err := conf.Internal.Validate(); err != nil {
 		return err
 	}
 	return nil
@@ -118,6 +167,17 @@ func init() {
 	viper.BindEnv("logging.stdout")
 	viper.SetDefault("logging.stdout", true)
 	viper.BindEnv("logging.http.url")
+
+	viper.BindEnv("internal.listen-addr")
+	viper.SetDefault("internal.listen-addr", ":8081")
+	viper.BindEnv("internal.token-audience")
+	viper.SetDefault("internal.token-audience", "humi-authentication-internal")
+	viper.BindEnv("internal.impersonation-token-expiry-seconds")
+	viper.SetDefault("internal.impersonation-token-expiry-seconds", 60)
+
+	// Local-development-only overrides. Never set these in a real
+	// deployment -- see DebugConfig.
+	viper.BindEnv("debug.namespace")
 
 	err := viper.Unmarshal(&Loaded)
 	if err != nil {

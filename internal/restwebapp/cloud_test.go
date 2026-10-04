@@ -109,7 +109,7 @@ func newTestApp(t *testing.T, store *fakeStore, cloud *fakeCloud) webApp {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewWebApp(store, key, "refresh-secret", 10*time.Minute, 7*24*time.Hour, cloud, 5*time.Minute, 24*time.Hour)
+	return NewWebApp(store, key, "refresh-secret", 10*time.Minute, 7*24*time.Hour, cloud, 5*time.Minute, 24*time.Hour, time.Minute)
 }
 
 type loginInput = struct {

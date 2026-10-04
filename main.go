@@ -14,12 +14,20 @@ import (
 	"github.com/Kaese72/authentication/internal/setupwebapp"
 	"github.com/Kaese72/authentication/internal/userwebapp"
 	"github.com/Kaese72/authentication/usertoken"
+	"github.com/Kaese72/huemie-lib/k8sauth"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humamux"
 	"github.com/gorilla/mux"
 
 	_ "go.elastic.co/apm/module/apmsql/mysql"
 )
+
+// internalTrustedServiceAccountNames are the only Kubernetes ServiceAccounts
+// allowed to call the internal listener (mint an impersonation token) --
+// see k8sauth.RequireServiceAccount. Hardcoded, not configuration: who may
+// impersonate another user is a security boundary of this service, not a
+// per-deployment knob.
+var internalTrustedServiceAccountNames = []string{"chatbot"}
 
 func main() {
 	if err := config.Loaded.Validate(); err != nil {
@@ -50,8 +58,9 @@ func main() {
 	cloud := cloudclient.New(config.Loaded.Cloud.ConnectClientURL, config.Loaded.Cloud.ServiceToken)
 	cloudStateExpiry := time.Duration(config.Loaded.Cloud.StateExpiryMinutes) * time.Minute
 	cloudAccessGrace := time.Duration(config.Loaded.Cloud.AccessGraceHours) * time.Hour
+	impersonationTokenExpiry := time.Duration(config.Loaded.Internal.ImpersonationTokenExpirySeconds) * time.Second
 
-	webapp := restwebapp.NewWebApp(dbPersistence, privateKey, config.Loaded.Auth.RefreshSecret, useTokenExpiry, refreshTokenExpiry, cloud, cloudStateExpiry, cloudAccessGrace)
+	webapp := restwebapp.NewWebApp(dbPersistence, privateKey, config.Loaded.Auth.RefreshSecret, useTokenExpiry, refreshTokenExpiry, cloud, cloudStateExpiry, cloudAccessGrace, impersonationTokenExpiry)
 	setupWebapp := setupwebapp.NewWebApp(dbPersistence)
 	userWebapp := userwebapp.NewWebApp(dbPersistence, &privateKey.PublicKey, cloud, cloudStateExpiry)
 
@@ -92,7 +101,42 @@ func main() {
 	huma.Delete(api, "/authentication-service/v0/users/{id}", userWebapp.DeleteUser)
 	huma.Put(api, "/authentication-service/v0/users/me/update-password", userWebapp.UpdateMyPassword)
 
-	if err := http.ListenAndServe(":8080", router); err != nil {
+	clientset, err := k8sauth.NewInClusterClientset()
+	if err != nil {
+		logging.Error("failed to build in-cluster Kubernetes clientset: "+err.Error(), context.TODO())
+		os.Exit(1)
+	}
+
+	// debug.namespace is a local-development-only override (see
+	// DebugConfig): outside a real pod there is no
+	// /var/run/secrets/kubernetes.io/serviceaccount/namespace file for
+	// k8sauth.CurrentNamespace to read, so it must be supplied explicitly
+	// instead. Never set in a real deployment, where the real namespace is
+	// always used.
+	namespace := config.Loaded.Debug.Namespace
+	if namespace == "" {
+		namespace, err = k8sauth.CurrentNamespace()
+		if err != nil {
+			logging.Error("failed to determine this pod's own namespace: "+err.Error(), context.TODO())
+			os.Exit(1)
+		}
+	}
+	requireServiceAccount := k8sauth.RequireServiceAccount(clientset, internalTrustedServiceAccountNames, config.Loaded.Internal.TokenAudience, namespace)
+
+	internalRouter := mux.NewRouter()
+	internalRouter.Use(requireServiceAccount)
+	internalHumaConfig := huma.DefaultConfig("authentication-internal", "1.0.0")
+	internalAPI := humamux.New(internalRouter, internalHumaConfig)
+	huma.Post(internalAPI, "/authentication-service/v0/internal/impersonate/{id}", webapp.Impersonate)
+
+	go func() {
+		if err := http.ListenAndServe(":8080", router); err != nil {
+			logging.Error(err.Error(), context.TODO())
+			os.Exit(1)
+		}
+	}()
+
+	if err := http.ListenAndServe(config.Loaded.Internal.ListenAddr, internalRouter); err != nil {
 		logging.Error(err.Error(), context.TODO())
 	}
 }

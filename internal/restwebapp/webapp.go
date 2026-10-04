@@ -21,26 +21,28 @@ const refreshCookieName = "refresh-token"
 const refreshCookiePath = "/authentication-service/v0/authentication/login"
 
 type webApp struct {
-	persistence        persistence.AuthPersistenceDB
-	privateKey         *rsa.PrivateKey
-	refreshSecret      string
-	useTokenExpiry     time.Duration
-	refreshTokenExpiry time.Duration
-	cloud              cloudclient.Client
-	cloudStateExpiry   time.Duration
-	cloudAccessGrace   time.Duration
+	persistence              persistence.AuthPersistenceDB
+	privateKey               *rsa.PrivateKey
+	refreshSecret            string
+	useTokenExpiry           time.Duration
+	refreshTokenExpiry       time.Duration
+	cloud                    cloudclient.Client
+	cloudStateExpiry         time.Duration
+	cloudAccessGrace         time.Duration
+	impersonationTokenExpiry time.Duration
 }
 
-func NewWebApp(p persistence.AuthPersistenceDB, privateKey *rsa.PrivateKey, refreshSecret string, useTokenExpiry time.Duration, refreshTokenExpiry time.Duration, cloud cloudclient.Client, cloudStateExpiry time.Duration, cloudAccessGrace time.Duration) webApp {
+func NewWebApp(p persistence.AuthPersistenceDB, privateKey *rsa.PrivateKey, refreshSecret string, useTokenExpiry time.Duration, refreshTokenExpiry time.Duration, cloud cloudclient.Client, cloudStateExpiry time.Duration, cloudAccessGrace time.Duration, impersonationTokenExpiry time.Duration) webApp {
 	return webApp{
-		persistence:        p,
-		privateKey:         privateKey,
-		refreshSecret:      refreshSecret,
-		useTokenExpiry:     useTokenExpiry,
-		refreshTokenExpiry: refreshTokenExpiry,
-		cloud:              cloud,
-		cloudStateExpiry:   cloudStateExpiry,
-		cloudAccessGrace:   cloudAccessGrace,
+		persistence:              p,
+		privateKey:               privateKey,
+		refreshSecret:            refreshSecret,
+		useTokenExpiry:           useTokenExpiry,
+		refreshTokenExpiry:       refreshTokenExpiry,
+		cloud:                    cloud,
+		cloudStateExpiry:         cloudStateExpiry,
+		cloudAccessGrace:         cloudAccessGrace,
+		impersonationTokenExpiry: impersonationTokenExpiry,
 	}
 }
 
