@@ -116,12 +116,27 @@ type DebugConfig struct {
 	Namespace string `json:"namespace" mapstructure:"namespace"`
 }
 
+// KubernetesConfig configures this process's own Kubernetes clientset, used
+// by huemie-lib/k8sauth to verify the ServiceAccount tokens presented to the
+// internal listener.
+type KubernetesConfig struct {
+	// ApiserverProxyURL, if set, routes TokenReview calls through an HTTP
+	// CONNECT proxy dedicated to reaching the apiserver -- see
+	// huemie-lib/k8sauth.NewInClusterClientset for why this must be supplied
+	// explicitly rather than via a generic HTTPS_PROXY env var: this process
+	// also calls out to the cloud (CloudConfig.ConnectClientURL and beyond),
+	// and a blanket HTTPS_PROXY would silently route that traffic through the
+	// same apiserver-only proxy too, which refuses to CONNECT anywhere else.
+	ApiserverProxyURL string `json:"apiserver-proxy-url" mapstructure:"apiserver-proxy-url"`
+}
+
 type Config struct {
-	Database DatabaseConfig `json:"database" mapstructure:"database"`
-	Auth     AuthConfig     `json:"auth" mapstructure:"auth"`
-	Cloud    CloudConfig    `json:"cloud" mapstructure:"cloud"`
-	Internal InternalConfig `json:"internal" mapstructure:"internal"`
-	Debug    DebugConfig    `json:"debug" mapstructure:"debug"`
+	Database   DatabaseConfig   `json:"database" mapstructure:"database"`
+	Auth       AuthConfig       `json:"auth" mapstructure:"auth"`
+	Cloud      CloudConfig      `json:"cloud" mapstructure:"cloud"`
+	Internal   InternalConfig   `json:"internal" mapstructure:"internal"`
+	Kubernetes KubernetesConfig `json:"kubernetes" mapstructure:"kubernetes"`
+	Debug      DebugConfig      `json:"debug" mapstructure:"debug"`
 }
 
 func (conf Config) Validate() error {
@@ -178,6 +193,8 @@ func init() {
 	viper.SetDefault("internal.token-audience", "humi-authentication-internal")
 	viper.BindEnv("internal.impersonation-token-expiry-seconds")
 	viper.SetDefault("internal.impersonation-token-expiry-seconds", 60)
+
+	viper.BindEnv("kubernetes.apiserver-proxy-url")
 
 	// Local-development-only overrides. Never set these in a real
 	// deployment -- see DebugConfig.

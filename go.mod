@@ -3,7 +3,7 @@ module github.com/Kaese72/authentication
 go 1.25.0
 
 require (
-	github.com/Kaese72/huemie-lib v0.0.9
+	github.com/Kaese72/huemie-lib v0.0.10
 	github.com/danielgtaylor/huma/v2 v2.34.1
 	github.com/go-sql-driver/mysql v1.5.0
 	github.com/golang-jwt/jwt/v5 v5.3.1

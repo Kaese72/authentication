@@ -101,7 +101,7 @@ func main() {
 	huma.Delete(api, "/authentication-service/v0/users/{id}", userWebapp.DeleteUser)
 	huma.Put(api, "/authentication-service/v0/users/me/update-password", userWebapp.UpdateMyPassword)
 
-	clientset, err := k8sauth.NewInClusterClientset()
+	clientset, err := k8sauth.NewInClusterClientset(config.Loaded.Kubernetes.ApiserverProxyURL)
 	if err != nil {
 		logging.Error("failed to build in-cluster Kubernetes clientset: "+err.Error(), context.TODO())
 		os.Exit(1)
