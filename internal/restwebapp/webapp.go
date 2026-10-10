@@ -133,7 +133,13 @@ func (app webApp) Login(ctx context.Context, input *struct {
 		if err == nil {
 			user, err := app.persistence.GetUserByID(ctx, id)
 			if err == nil {
-				if user.CloudUserID != nil {
+				// Only sessions that came from a cloud login are re-checked
+				// against the cloud: those carry a cloud-verified time. A
+				// linked user who logged in with their local password is a
+				// purely local session. A user without a password can only
+				// have logged in through the cloud, so is always re-checked.
+				cloudSession := !cloudVerifiedAt.IsZero() || user.PasswordHash == ""
+				if user.CloudUserID != nil && cloudSession {
 					cloudVerifiedAt, err = app.recheckCloudAccess(ctx, *user.CloudUserID, cloudVerifiedAt)
 					if err != nil {
 						return nil, err

@@ -239,6 +239,47 @@ func TestRefreshLocalUserNeverAsksCloud(t *testing.T) {
 	}
 }
 
+func TestRefreshLinkedUserLocalSessionNeverAsksCloud(t *testing.T) {
+	// A local user linked to the cloud who logged in with their password has
+	// no cloud-verified time in the refresh token: that session is local.
+	store, cloud := newFakeStore(), &fakeCloud{}
+	app := newTestApp(t, store, cloud)
+	cloudID := int64(42)
+	store.users[1] = persistence.User{ID: 1, Username: "linked", PasswordHash: "x", CloudUserID: &cloudID}
+
+	if _, err := app.Login(context.Background(), refreshInput(t, app, 1, time.Time{})); err != nil {
+		t.Fatal(err)
+	}
+	if cloud.accessCalls != 0 {
+		t.Errorf("local sessions of linked users must not trigger a cloud check, got %d", cloud.accessCalls)
+	}
+}
+
+func TestRefreshLinkedUserCloudSessionAsksCloud(t *testing.T) {
+	store, cloud := newFakeStore(), &fakeCloud{allowed: true}
+	app := newTestApp(t, store, cloud)
+	cloudID := int64(42)
+	store.users[1] = persistence.User{ID: 1, Username: "linked", PasswordHash: "x", CloudUserID: &cloudID}
+
+	if _, err := app.Login(context.Background(), refreshInput(t, app, 1, time.Now())); err != nil {
+		t.Fatal(err)
+	}
+	if cloud.accessCalls != 1 {
+		t.Errorf("cloud sessions of linked users must be re-checked, got %d", cloud.accessCalls)
+	}
+}
+
+func TestRefreshCloudOnlyUserWithoutVerifiedTimeAsksCloud(t *testing.T) {
+	store, cloud := newFakeStore(), &fakeCloud{accessErr: errors.New("connection refused")}
+	app := newTestApp(t, store, cloud)
+	id := addCloudUser(store, 42)
+
+	_, err := app.Login(context.Background(), refreshInput(t, app, id, time.Time{}))
+	if statusOf(err) != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for a cloud-only user that cannot be verified, got %v", err)
+	}
+}
+
 func TestRefreshDeletedUserIsRejected(t *testing.T) {
 	store, cloud := newFakeStore(), &fakeCloud{}
 	app := newTestApp(t, store, cloud)
