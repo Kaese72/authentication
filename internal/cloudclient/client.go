@@ -7,8 +7,7 @@
 // Authenticates to cloud-connect-client's internal listener as this pod's
 // own Kubernetes ServiceAccount (see huemie-lib/k8sauth on the
 // cloud-connect-client side), the same mechanism the chatbot service uses to
-// call authentication's own internal listener -- not a static shared
-// secret.
+// call authentication's own internal listener.
 package cloudclient
 
 import (

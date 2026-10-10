@@ -52,7 +52,7 @@ type CloudConfig struct {
 	// Kubernetes ServiceAccount token, presented to cloud-connect-client's
 	// internal listener -- verified there via the TokenReview API
 	// (huemie-lib/k8sauth), the same mechanism the chatbot service uses
-	// against this service's own internal listener. Not a static secret.
+	// against this service's own internal listener.
 	ServiceAccountTokenPath string `json:"service-account-token-path" mapstructure:"service-account-token-path"`
 	// StateExpiryMinutes bounds how long a browser has to complete the
 	// cloud leg of a login before coming back.
