@@ -3,6 +3,12 @@
 // thing on the appliance that talks to the cloud. The authentication service
 // uses it to offer "log in with Humi Cloud" and to re-check a cloud user's
 // access when their session is refreshed.
+//
+// Authenticates to cloud-connect-client's internal listener as this pod's
+// own Kubernetes ServiceAccount (see huemie-lib/k8sauth on the
+// cloud-connect-client side), the same mechanism the chatbot service uses to
+// call authentication's own internal listener -- not a static shared
+// secret.
 package cloudclient
 
 import (
@@ -13,7 +19,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -54,19 +62,22 @@ type Client interface {
 }
 
 type httpClient struct {
-	baseURL      string
-	serviceToken string
-	httpClient   *http.Client
+	baseURL          string
+	serviceTokenPath string
+	httpClient       *http.Client
 }
 
-// New returns a Client for the cloud-connect-client at baseURL. An empty
-// baseURL yields a Client whose every call fails with ErrNotConfigured (and
-// whose Available is simply false).
-func New(baseURL string, serviceToken string) Client {
+// New returns a Client for the cloud-connect-client at baseURL, presenting
+// this pod's own projected Kubernetes ServiceAccount token (read fresh from
+// serviceTokenPath on every call, since kubelet rotates its contents in
+// place) as the bearer credential. An empty baseURL yields a Client whose
+// every call fails with ErrNotConfigured (and whose Available is simply
+// false).
+func New(baseURL string, serviceTokenPath string) Client {
 	if baseURL == "" {
 		return disabled{}
 	}
-	return httpClient{baseURL: baseURL, serviceToken: serviceToken, httpClient: &http.Client{Timeout: 15 * time.Second}}
+	return httpClient{baseURL: baseURL, serviceTokenPath: serviceTokenPath, httpClient: &http.Client{Timeout: 15 * time.Second}}
 }
 
 type disabled struct{}
@@ -95,7 +106,13 @@ func (c httpClient) do(ctx context.Context, method string, path string, body any
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.serviceToken)
+	// Re-read on every call, rather than caching: kubelet periodically
+	// rotates a projected ServiceAccount token's contents in place.
+	serviceToken, err := os.ReadFile(c.serviceTokenPath)
+	if err != nil {
+		return fmt.Errorf("failed to read service account token: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(string(serviceToken)))
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}

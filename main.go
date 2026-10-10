@@ -55,7 +55,7 @@ func main() {
 	useTokenExpiry := time.Duration(config.Loaded.Auth.UseTokenExpiryMinutes) * time.Minute
 	refreshTokenExpiry := time.Duration(config.Loaded.Auth.RefreshTokenExpiryDays) * 24 * time.Hour
 
-	cloud := cloudclient.New(config.Loaded.Cloud.ConnectClientURL, config.Loaded.Cloud.ServiceToken)
+	cloud := cloudclient.New(config.Loaded.Cloud.ConnectClientURL, config.Loaded.Cloud.ServiceAccountTokenPath)
 	cloudStateExpiry := time.Duration(config.Loaded.Cloud.StateExpiryMinutes) * time.Minute
 	cloudAccessGrace := time.Duration(config.Loaded.Cloud.AccessGraceHours) * time.Hour
 	impersonationTokenExpiry := time.Duration(config.Loaded.Internal.ImpersonationTokenExpirySeconds) * time.Second

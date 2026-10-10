@@ -48,9 +48,12 @@ type CloudConfig struct {
 	// ConnectClientURL is the base URL of this appliance's
 	// cloud-connect-client service, e.g. http://cloud-connect-client:8080.
 	ConnectClientURL string `json:"connect-client-url" mapstructure:"connect-client-url"`
-	// ServiceToken authenticates to cloud-connect-client's internal
-	// endpoints; it must be one of that service's auth internal-service-tokens.
-	ServiceToken string `json:"service-token" mapstructure:"service-token"`
+	// ServiceAccountTokenPath is this pod's own projected, audience-bound
+	// Kubernetes ServiceAccount token, presented to cloud-connect-client's
+	// internal listener -- verified there via the TokenReview API
+	// (huemie-lib/k8sauth), the same mechanism the chatbot service uses
+	// against this service's own internal listener. Not a static secret.
+	ServiceAccountTokenPath string `json:"service-account-token-path" mapstructure:"service-account-token-path"`
 	// StateExpiryMinutes bounds how long a browser has to complete the
 	// cloud leg of a login before coming back.
 	StateExpiryMinutes int `json:"state-expiry-minutes" mapstructure:"state-expiry-minutes"`
@@ -63,8 +66,8 @@ type CloudConfig struct {
 }
 
 func (conf CloudConfig) Validate() error {
-	if conf.ConnectClientURL != "" && conf.ServiceToken == "" {
-		return errors.New("must supply cloud service-token when cloud connect-client-url is set")
+	if conf.ConnectClientURL != "" && conf.ServiceAccountTokenPath == "" {
+		return errors.New("must supply cloud service-account-token-path when cloud connect-client-url is set")
 	}
 	return nil
 }
@@ -158,7 +161,8 @@ func init() {
 	viper.SetDefault("auth.refresh-token-expiry-days", 7)
 
 	viper.BindEnv("cloud.connect-client-url")
-	viper.BindEnv("cloud.service-token")
+	viper.BindEnv("cloud.service-account-token-path")
+	viper.SetDefault("cloud.service-account-token-path", "/var/run/secrets/tokens/cloud-connect-client-internal")
 	viper.BindEnv("cloud.state-expiry-minutes")
 	viper.SetDefault("cloud.state-expiry-minutes", 5)
 	viper.BindEnv("cloud.access-grace-hours")
