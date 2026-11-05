@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/Kaese72/authentication/internal/apitokenwebapp"
 	"github.com/Kaese72/authentication/internal/cloudclient"
 	"github.com/Kaese72/authentication/internal/config"
 	"github.com/Kaese72/authentication/internal/logging"
@@ -28,6 +29,14 @@ import (
 // impersonate another user is a security boundary of this service, not a
 // per-deployment knob.
 var internalTrustedServiceAccountNames = []string{"chatbot"}
+
+// apiTokenIntrospectionServiceAccountNames are the only Kubernetes
+// ServiceAccounts allowed to introspect API tokens, i.e. the services that
+// accept them (usertoken.AcceptAPITokens). Kept apart from
+// internalTrustedServiceAccountNames so that accepting API tokens never also
+// grants the right to impersonate. Each of these needs its own
+// ServiceAccount: never add "default", which every pod without one runs as.
+var apiTokenIntrospectionServiceAccountNames = []string{"device-store", "ittt-orchestrator", "adapter-attendant"}
 
 func main() {
 	if err := config.Loaded.Validate(); err != nil {
@@ -63,8 +72,12 @@ func main() {
 	webapp := restwebapp.NewWebApp(dbPersistence, privateKey, config.Loaded.Auth.RefreshSecret, useTokenExpiry, refreshTokenExpiry, cloud, cloudStateExpiry, cloudAccessGrace, impersonationTokenExpiry)
 	setupWebapp := setupwebapp.NewWebApp(dbPersistence)
 	userWebapp := userwebapp.NewWebApp(dbPersistence, &privateKey.PublicKey, cloud, cloudStateExpiry)
+	apiTokenWebapp := apitokenwebapp.NewWebApp(dbPersistence)
 
 	router := mux.NewRouter()
+	// usertoken.Middleware refuses API tokens: they must never be usable
+	// against this service, or a token could manage tokens, users and
+	// passwords. Do not switch this to usertoken.AcceptAPITokens.
 	router.Use(usertoken.Middleware(
 		&privateKey.PublicKey,
 		"/authentication-service/v0/authentication/login",
@@ -101,6 +114,10 @@ func main() {
 	huma.Delete(api, "/authentication-service/v0/users/{id}", userWebapp.DeleteUser)
 	huma.Put(api, "/authentication-service/v0/users/me/update-password", userWebapp.UpdateMyPassword)
 
+	huma.Get(api, "/authentication-service/v0/users/me/api-tokens", apiTokenWebapp.ListMyAPITokens)
+	huma.Post(api, "/authentication-service/v0/users/me/api-tokens", apiTokenWebapp.CreateMyAPIToken)
+	huma.Delete(api, "/authentication-service/v0/users/me/api-tokens/{tokenId}", apiTokenWebapp.DeleteMyAPIToken)
+
 	clientset, err := k8sauth.NewInClusterClientset(config.Loaded.Kubernetes.ApiserverProxyURL)
 	if err != nil {
 		logging.Error("failed to build in-cluster Kubernetes clientset: "+err.Error(), context.TODO())
@@ -121,13 +138,27 @@ func main() {
 			os.Exit(1)
 		}
 	}
-	requireServiceAccount := k8sauth.RequireServiceAccount(clientset, internalTrustedServiceAccountNames, config.Loaded.Internal.TokenAudience, namespace)
+	requireImpersonator := k8sauth.RequireServiceAccount(clientset, internalTrustedServiceAccountNames, config.Loaded.Internal.TokenAudience, namespace)
+	requireIntrospector := k8sauth.RequireServiceAccount(clientset, apiTokenIntrospectionServiceAccountNames, config.Loaded.Internal.TokenAudience, namespace)
 
 	internalRouter := mux.NewRouter()
-	internalRouter.Use(requireServiceAccount)
+	// Each internal endpoint has its own allow-list; introspection is the
+	// only one the introspecting services may reach, everything else stays
+	// limited to internalTrustedServiceAccountNames.
+	internalRouter.Use(func(next http.Handler) http.Handler {
+		impersonator, introspector := requireImpersonator(next), requireIntrospector(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == usertoken.IntrospectPath {
+				introspector.ServeHTTP(w, r)
+				return
+			}
+			impersonator.ServeHTTP(w, r)
+		})
+	})
 	internalHumaConfig := huma.DefaultConfig("authentication-internal", "1.0.0")
 	internalAPI := humamux.New(internalRouter, internalHumaConfig)
 	huma.Post(internalAPI, "/authentication-service/v0/internal/impersonate/{id}", webapp.Impersonate)
+	huma.Post(internalAPI, usertoken.IntrospectPath, apiTokenWebapp.Introspect)
 
 	go func() {
 		if err := http.ListenAndServe(":8080", router); err != nil {

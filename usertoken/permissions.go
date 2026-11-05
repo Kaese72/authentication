@@ -158,6 +158,51 @@ func (p Permissions) Resources() map[string]ResourceGrant {
 	return out
 }
 
+// Intersect returns what both p and other allow: per resource, view only if
+// both allow viewing it and modify only if both allow modifying it. The
+// result is admin only if both are. Used to narrow an API token's own scope
+// to what its owner currently has.
+func (p Permissions) Intersect(other Permissions) Permissions {
+	if p.admin {
+		return other
+	}
+	if other.admin {
+		return p
+	}
+	grants := map[string]ResourceGrant{}
+	for resource := range p.resources {
+		var grant ResourceGrant
+		if p.HasView(resource) && other.HasView(resource) {
+			grant.View = accessAll
+		}
+		if p.HasModify(resource) && other.HasModify(resource) {
+			grant.Modify = accessAll
+		}
+		grants[resource] = grant
+	}
+	return NewPermissions(grants)
+}
+
+// Covers reports whether p allows everything other allows. An admin covers
+// everything; only an admin covers an admin.
+func (p Permissions) Covers(other Permissions) bool {
+	if p.admin {
+		return true
+	}
+	if other.admin {
+		return false
+	}
+	for resource := range other.resources {
+		if other.HasView(resource) && !p.HasView(resource) {
+			return false
+		}
+		if other.HasModify(resource) && !p.HasModify(resource) {
+			return false
+		}
+	}
+	return true
+}
+
 // toRaw renders p in the wire/storage shape used by both the JWT claim and
 // the persisted column: {"admin": true} or {"<code>": {"v": "*", "m": "*"}, ...}.
 func (p Permissions) toRaw() map[string]any {

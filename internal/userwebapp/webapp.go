@@ -57,6 +57,19 @@ func requireAdmin(ctx context.Context) error {
 	return nil
 }
 
+// requireLocalLogin refuses operations that create access outliving the
+// caller's session, unless that session began with a local username and
+// password. A cloud session is re-checked against the cloud on every refresh;
+// letting it create, say, a local account with a password would hand a cloud
+// user who is later revoked a way back in that never is. Unknown (pre-lm),
+// impersonation and API-token sessions are refused too.
+func requireLocalLogin(ctx context.Context, what string) error {
+	if method, _ := usertoken.LoginMethodFromContext(ctx); method != usertoken.LoginMethodLocal {
+		return huma.Error403Forbidden(what + " requires logging in locally with a username and password")
+	}
+	return nil
+}
+
 // validResource reports whether code is one of the resource codes
 // usertoken.Resources defines.
 func validResource(code string) bool {
@@ -195,6 +208,9 @@ func (app webApp) CreateUser(ctx context.Context, input *struct {
 	Body restmodels.UserResponse
 }, error) {
 	if err := requireUsersModify(ctx); err != nil {
+		return nil, err
+	}
+	if err := requireLocalLogin(ctx, "creating a user"); err != nil {
 		return nil, err
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(input.Body.Password), bcrypt.DefaultCost)

@@ -78,13 +78,14 @@ type loginResult struct {
 // issueLogin issues a use/refresh token pair for the user. cloudVerifiedAt is
 // when their cloud access was last confirmed (zero for non-cloud users) and is
 // carried in the refresh token so the next refresh knows how stale it is.
-func (app webApp) issueLogin(ctx context.Context, id int64, permissions usertoken.Permissions, cloudVerifiedAt time.Time) (*loginResult, error) {
-	useToken, err := generateUseToken(app.privateKey, id, app.useTokenExpiry, permissions)
+// method is how the session began, and is carried across refreshes too.
+func (app webApp) issueLogin(ctx context.Context, id int64, permissions usertoken.Permissions, cloudVerifiedAt time.Time, method usertoken.LoginMethod) (*loginResult, error) {
+	useToken, err := generateUseToken(app.privateKey, id, app.useTokenExpiry, permissions, method)
 	if err != nil {
 		logging.ErrorErr(err, ctx)
 		return nil, huma.Error500InternalServerError("token generation failed")
 	}
-	refreshToken, err := generateRefreshToken(app.refreshSecret, id, app.refreshTokenExpiry, cloudVerifiedAt)
+	refreshToken, err := generateRefreshToken(app.refreshSecret, id, app.refreshTokenExpiry, cloudVerifiedAt, method)
 	if err != nil {
 		logging.ErrorErr(err, ctx)
 		return nil, huma.Error500InternalServerError("token generation failed")
@@ -129,7 +130,7 @@ func (app webApp) Login(ctx context.Context, input *struct {
 	// Try refresh cookie first
 	fakeReq := &http.Request{Header: http.Header{"Cookie": []string{input.CookieHeader}}}
 	if cookie, err := fakeReq.Cookie(refreshCookieName); err == nil {
-		id, cloudVerifiedAt, err := validateRefreshToken(app.refreshSecret, cookie.Value)
+		id, cloudVerifiedAt, localLogin, err := validateRefreshToken(app.refreshSecret, cookie.Value)
 		if err == nil {
 			user, err := app.persistence.GetUserByID(ctx, id)
 			if err == nil {
@@ -145,7 +146,16 @@ func (app webApp) Login(ctx context.Context, input *struct {
 						return nil, err
 					}
 				}
-				return app.issueLogin(ctx, user.ID, user.Permissions, cloudVerifiedAt)
+				// A session stays whatever it began as. Only an explicit
+				// local marker makes it local: a refresh token from before
+				// the marker existed refreshes as unknown, never local.
+				method := usertoken.LoginMethodUnknown
+				if cloudSession {
+					method = usertoken.LoginMethodCloud
+				} else if localLogin {
+					method = usertoken.LoginMethodLocal
+				}
+				return app.issueLogin(ctx, user.ID, user.Permissions, cloudVerifiedAt, method)
 			}
 			if err != sql.ErrNoRows {
 				logging.ErrorErr(err, ctx)
@@ -179,5 +189,5 @@ func (app webApp) Login(ctx context.Context, input *struct {
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
 		return nil, huma.Error401Unauthorized("invalid credentials")
 	}
-	return app.issueLogin(ctx, user.ID, user.Permissions, time.Time{})
+	return app.issueLogin(ctx, user.ID, user.Permissions, time.Time{}, usertoken.LoginMethodLocal)
 }

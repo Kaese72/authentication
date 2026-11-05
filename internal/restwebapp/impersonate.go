@@ -7,6 +7,7 @@ import (
 
 	"github.com/Kaese72/authentication/internal/logging"
 	"github.com/Kaese72/authentication/restmodels"
+	"github.com/Kaese72/authentication/usertoken"
 	"github.com/danielgtaylor/huma/v2"
 )
 
@@ -34,7 +35,7 @@ func (app webApp) Impersonate(ctx context.Context, input *struct {
 		logging.ErrorErr(err, ctx)
 		return nil, huma.Error500InternalServerError("failed to get user")
 	}
-	useToken, err := generateUseToken(app.privateKey, target.ID, app.impersonationTokenExpiry, target.Permissions)
+	useToken, err := generateUseToken(app.privateKey, target.ID, app.impersonationTokenExpiry, target.Permissions, usertoken.LoginMethodImpersonation)
 	if err != nil {
 		logging.ErrorErr(err, ctx)
 		return nil, huma.Error500InternalServerError("token generation failed")

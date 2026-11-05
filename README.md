@@ -60,9 +60,60 @@ instead of re-implementing the format:
   issue functions. Only this service, which holds the private key, should
   ever call `Sign`.
 
+* `usertoken.NewMiddleware(publicKey, opts...)` is the configurable form;
+  see API tokens below.
+* `usertoken.LoginMethodFromContext(ctx)` reports how the caller
+  authenticated: the `use` token's `lm` claim (`local`, `cloud`,
+  `impersonation`, or unknown for tokens without one), or `api-token`.
+
 The package deliberately depends only on the JWT library and `huemie-lib`,
 so importing it does not pull this service's own dependencies (database
 driver, APM, ...) into the importing service.
+
+#### API tokens
+
+Users can provision long-lived API tokens for themselves
+(`humi_pat_<publicId>_<secret>`). Unlike `use` tokens they are opaque.
+A receiving service looks each one up here, so revoking a token or
+changing its owner's permissions takes effect quickly, within the
+receiving service's cache TTL (30s by default).
+
+* Creating a token (`POST /authentication-service/v0/users/me/api-tokens`)
+  requires a session that began with a local username and password. Cloud,
+  impersonation and pre-`lm` sessions are refused. A cloud session is
+  re-checked against the cloud on every refresh and must not be able to
+  mint itself access that never is.
+* Listing (`GET .../users/me/api-tokens`) and deleting
+  (`DELETE .../users/me/api-tokens/{tokenId}`) work from any session.
+* A token's scope may not exceed its owner's permissions when it is
+  created. It never carries admin. On every lookup it is intersected with
+  the owner's *current* permissions.
+* Only the SHA-256 of the token's secret is stored. The token is returned
+  once, at creation.
+* **This service never accepts API tokens.** It uses
+  `usertoken.Middleware`, which refuses them.
+
+Services opt in to accepting them:
+
+```go
+introspector := usertoken.NewIntrospector(authenticationInternalURL, serviceAccountTokenPath)
+router.Use(usertoken.NewMiddleware(pubKey,
+    usertoken.SkipPrefixes("/my-service/openapi", "/my-service/docs"),
+    usertoken.AcceptAPITokens(introspector),
+    // Override: API tokens refused here, use tokens still accepted.
+    usertoken.RejectAPITokensFor("/my-service/v0/sensitive/"),
+))
+```
+
+For a decision that depends on more than the path, a handler can check
+`usertoken.IsAPITokenRequest(ctx)`.
+
+The introspector calls `POST /authentication-service/v0/internal/api-tokens/introspect`
+on the internal listener. It authenticates with the calling service's
+projected ServiceAccount token, using the same audience as impersonation.
+That ServiceAccount must be listed in `apiTokenIntrospectionServiceAccountNames`
+in `main.go`. That list is separate from the impersonation allow-list, so
+accepting API tokens never also grants impersonation.
 
 #### `refresh` token architecture
 

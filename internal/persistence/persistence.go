@@ -40,6 +40,41 @@ type AuthPersistenceDB interface {
 	ConsumeCloudLoginState(ctx context.Context, state string) (bool, error)
 }
 
+// APIToken is a stored API token. The token itself is never stored: only
+// PublicID (its non-secret part, used to find the row) and SecretHash (the
+// SHA-256 of its secret part). See usertoken.GenerateAPIToken.
+type APIToken struct {
+	ID         int64
+	UserID     int64
+	PublicID   string
+	SecretHash []byte
+	Name       string
+	// Permissions is the token's own scope. What it actually grants is
+	// always this intersected with its owner's current permissions.
+	Permissions usertoken.Permissions
+	// ExpiresAt is nil for a token that never expires.
+	ExpiresAt  *time.Time
+	LastUsedAt *time.Time
+	CreatedAt  time.Time
+}
+
+type APITokenPersistenceDB interface {
+	GetUserByID(ctx context.Context, id int64) (User, error)
+	// CreateAPIToken stores token, ignoring its ID, and returns its new ID.
+	CreateAPIToken(ctx context.Context, token APIToken) (int64, error)
+	// ListAPITokens returns all of userID's tokens, expired ones included,
+	// oldest first.
+	ListAPITokens(ctx context.Context, userID int64) ([]APIToken, error)
+	// DeleteAPIToken deletes token id, but only if it belongs to userID;
+	// sql.ErrNoRows otherwise, so one user can never learn of or delete
+	// another's token.
+	DeleteAPIToken(ctx context.Context, userID int64, id int64) error
+	// GetAPITokenByPublicID returns sql.ErrNoRows if there is no such token.
+	GetAPITokenByPublicID(ctx context.Context, publicID string) (APIToken, error)
+	// TouchAPIToken records that token id was used at the given time.
+	TouchAPIToken(ctx context.Context, id int64, at time.Time) error
+}
+
 type SetupPersistenceDB interface {
 	UserExists(ctx context.Context) (bool, error)
 	// CreateUser creates the appliance's first user with the given

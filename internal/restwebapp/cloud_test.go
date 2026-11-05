@@ -13,6 +13,7 @@ import (
 	"github.com/Kaese72/authentication/internal/cloudclient"
 	"github.com/Kaese72/authentication/internal/persistence"
 	"github.com/Kaese72/authentication/restmodels"
+	"github.com/Kaese72/authentication/usertoken"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/go-sql-driver/mysql"
 )
@@ -119,7 +120,11 @@ type loginInput = struct {
 
 func refreshInput(t *testing.T, app webApp, userID int64, cloudVerifiedAt time.Time) *loginInput {
 	t.Helper()
-	token, err := generateRefreshToken(app.refreshSecret, userID, time.Hour, cloudVerifiedAt)
+	method := usertoken.LoginMethodLocal
+	if !cloudVerifiedAt.IsZero() {
+		method = usertoken.LoginMethodCloud
+	}
+	token, err := generateRefreshToken(app.refreshSecret, userID, time.Hour, cloudVerifiedAt, method)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +211,7 @@ func TestRefreshGraceDoesNotSlide(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, got, err := validateRefreshToken(app.refreshSecret, cookie.Value)
+	_, got, _, err := validateRefreshToken(app.refreshSecret, cookie.Value)
 	if err != nil {
 		t.Fatal(err)
 	}

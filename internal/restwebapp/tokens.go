@@ -35,8 +35,8 @@ func ParseRSAPrivateKey(pemBytes []byte) (*rsa.PrivateKey, error) {
 	}
 }
 
-func generateUseToken(privateKey *rsa.PrivateKey, id int64, expiry time.Duration, permissions usertoken.Permissions) (string, error) {
-	return usertoken.Sign(privateKey, id, expiry, permissions)
+func generateUseToken(privateKey *rsa.PrivateKey, id int64, expiry time.Duration, permissions usertoken.Permissions, method usertoken.LoginMethod) (string, error) {
+	return usertoken.Sign(privateKey, id, expiry, permissions, usertoken.WithLoginMethod(method))
 }
 
 // claimCloudVerified is the refresh-token claim holding the unix time the
@@ -44,7 +44,13 @@ func generateUseToken(privateKey *rsa.PrivateKey, id int64, expiry time.Duration
 // refresh tokens carry it.
 const claimCloudVerified = "cv"
 
-func generateRefreshToken(secret string, id int64, expiry time.Duration, cloudVerifiedAt time.Time) (string, error) {
+// claimLocalLogin is the refresh-token claim marking a session that began
+// with a local username and password, so every use token refreshed from it
+// keeps saying so (see usertoken.LoginMethodLocal). Its absence never means
+// local: refresh tokens issued before it existed refresh as an unknown method.
+const claimLocalLogin = "lm"
+
+func generateRefreshToken(secret string, id int64, expiry time.Duration, cloudVerifiedAt time.Time, method usertoken.LoginMethod) (string, error) {
 	claims := jwt.MapClaims{
 		"id":  id,
 		"exp": time.Now().Add(expiry).Unix(),
@@ -52,6 +58,9 @@ func generateRefreshToken(secret string, id int64, expiry time.Duration, cloudVe
 	}
 	if !cloudVerifiedAt.IsZero() {
 		claims[claimCloudVerified] = cloudVerifiedAt.Unix()
+	}
+	if method == usertoken.LoginMethodLocal {
+		claims[claimLocalLogin] = string(usertoken.LoginMethodLocal)
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString([]byte(secret))
@@ -70,9 +79,10 @@ func ValidateUseToken(publicKey *rsa.PublicKey, tokenString string) (id int64, p
 }
 
 // validateRefreshToken verifies a refresh token and returns the user id it
-// was issued for and, for cloud users, when their cloud access was last
-// confirmed (zero if the token carries no such claim).
-func validateRefreshToken(secret string, tokenString string) (id int64, cloudVerifiedAt time.Time, err error) {
+// was issued for, for cloud users when their cloud access was last confirmed
+// (zero if the token carries no such claim), and whether the session began
+// with a local password login.
+func validateRefreshToken(secret string, tokenString string) (id int64, cloudVerifiedAt time.Time, localLogin bool, err error) {
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
@@ -80,18 +90,19 @@ func validateRefreshToken(secret string, tokenString string) (id int64, cloudVer
 		return []byte(secret), nil
 	})
 	if err != nil {
-		return 0, time.Time{}, err
+		return 0, time.Time{}, false, err
 	}
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok || !token.Valid {
-		return 0, time.Time{}, errors.New("invalid token")
+		return 0, time.Time{}, false, errors.New("invalid token")
 	}
 	id, err = claimsToID(claims)
 	if err != nil {
-		return 0, time.Time{}, err
+		return 0, time.Time{}, false, err
 	}
 	if cv, ok := claims[claimCloudVerified].(float64); ok {
 		cloudVerifiedAt = time.Unix(int64(cv), 0)
 	}
-	return id, cloudVerifiedAt, nil
+	lm, _ := claims[claimLocalLogin].(string)
+	return id, cloudVerifiedAt, lm == string(usertoken.LoginMethodLocal), nil
 }
