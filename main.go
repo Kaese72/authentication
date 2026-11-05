@@ -36,7 +36,7 @@ var internalTrustedServiceAccountNames = []string{"chatbot"}
 // internalTrustedServiceAccountNames so that accepting API tokens never also
 // grants the right to impersonate. Each of these needs its own
 // ServiceAccount: never add "default", which every pod without one runs as.
-var apiTokenIntrospectionServiceAccountNames = []string{"device-store", "ittt-orchestrator", "adapter-attendant"}
+var apiTokenIntrospectionServiceAccountNames = []string{"device-store", "ittt-orchestrator", "adapter-attendant", "chatbot"}
 
 func main() {
 	if err := config.Loaded.Validate(); err != nil {
